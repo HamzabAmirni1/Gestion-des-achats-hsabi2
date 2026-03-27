@@ -608,3 +608,83 @@ body {
   background: var(--bg-gradient);
   color: var(--text-main);
 }
+
+/* Social Grid for Profile */
+.social-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+.btn-social {
+  padding: 12px 20px;
+  border-radius: 12px;
+  text-decoration: none;
+  font-weight: 600;
+  color: white;
+  transition: transform 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+.btn-social:hover {
+  transform: translateY(-3px);
+  color: white;
+}
+.btn-social.whatsapp { background: #25D366; }
+.btn-social.instagram { background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%); }
+.btn-social.facebook { background: #1877F2; }
+.btn-social.youtube { background: #FF0000; }
+.btn-social.telegram { background: #0088cc; }
+.btn-social.portfolio { background: var(--primary); }
+
+/* Print Styles */
+@media print {
+  body {
+    background: #fff;
+    color: #000;
+  }
+  .app-wrapper {
+    box-shadow: none !important;
+    background: #fff !important;
+    padding: 0 !important;
+  }
+  .header-actions, .nav-tabs, .search-bar, .btn-primary, .icon-btn, .modal-overlay, .auth-container {
+    display: none !important;
+  }
+  .glass-container, .stat-card {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0;
+    box-shadow: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    break-inside: avoid;
+    margin-bottom: 20px;
+  }
+  .stats-grid {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .stat-card {
+    flex: 1 1 45%;
+    margin: 5px;
+  }
+  .data-table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  .data-table th, .data-table td {
+    border: 1px solid #ccc;
+    padding: 8px;
+    color: #000;
+  }
+  /* Hide Delete Column in print */
+  .data-table th:last-child, .data-table td:last-child {
+    display: none !important;
+  }
+}

@@ -254,9 +254,10 @@ export default function App() {
         scale: 4, // جودة أعلى بكثير للفلاتر والنصوص
         useCORS: true, 
         logging: false,
-        backgroundColor: theme === 'dark' ? '#0f172a' : '#f8fafc' 
+        backgroundColor: theme === 'dark' ? '#0f172a' : '#ffffff' 
       });
-      const imgData = canvas.toDataURL('image/png', 1.0);
+      // استخراج الصورة بصيغة JPEG لتقليل الحجم إلى أقل من 2 ميغابايت للحفاظ على المساحة
+      const imgData = canvas.toDataURL('image/jpeg', 0.7);
       
       // 'l' يعني Landscape حتى تظهر الجداول بالعرض بشكل واضح
       const pdf = new jsPDF('l', 'mm', 'a4'); 
@@ -441,6 +442,9 @@ export default function App() {
         <button className={`nav-tab ${activeTab === 'stock' ? 'active' : ''}`} onClick={() => setActiveTab('stock')}>
           <Package size={20} /> المخزون (Stock)
         </button>
+        <button className={`nav-tab ${activeTab === 'profile' ? 'active' : ''}`} onClick={() => setActiveTab('profile')}>
+          <User size={20} /> المُطوّر
+        </button>
       </nav>
 
       {/* Content */}
@@ -608,6 +612,29 @@ export default function App() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'profile' && (
+          <div className="glass-container animate-enter" style={{textAlign: 'center', padding: '40px 20px'}}>
+            <div style={{width: '90px', height: '90px', borderRadius: '50%', background: 'var(--primary)', margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 25px -5px rgba(79,70,229,0.5)'}}>
+              <User size={50} color="white" />
+            </div>
+            <h2 style={{fontSize: '2rem', marginBottom: '5px', fontWeight: '800'}}>Hamza Amirni</h2>
+            <p style={{color: 'var(--text-muted)', marginBottom: '30px', fontSize: '1.1rem'}}>Full-Stack Developer & Technical Creator</p>
+            
+            <div className="social-grid">
+              <a href="https://whatsapp.com/channel/0029ValXRoHCnA7yKopcrn1p" target="_blank" rel="noreferrer" className="btn-social whatsapp">💬 WhatsApp Channel</a>
+              <a href="https://chat.whatsapp.com/DDb3fGPuZPB1flLc1BV9gJ" target="_blank" rel="noreferrer" className="btn-social whatsapp">👥 WhatsApp Groups</a>
+              <a href="https://instagram.com/hamza_amirni_01" target="_blank" rel="noreferrer" className="btn-social instagram">📸 Instagram (1)</a>
+              <a href="https://instagram.com/hamza_amirni_02" target="_blank" rel="noreferrer" className="btn-social instagram">📸 Instagram (2)</a>
+              <a href="https://www.instagram.com/channel/AbbqrMVbExH_EZLD/" target="_blank" rel="noreferrer" className="btn-social instagram">📺 IG Channel</a>
+              <a href="https://www.facebook.com/6kqzuj3y4e" target="_blank" rel="noreferrer" className="btn-social facebook">📘 Facebook Profile</a>
+              <a href="https://www.facebook.com/profile.php?id=61564527797752" target="_blank" rel="noreferrer" className="btn-social facebook">📄 Facebook Page</a>
+              <a href="https://www.youtube.com/@Hamzaamirni01" target="_blank" rel="noreferrer" className="btn-social youtube">▶️ YouTube Channel</a>
+              <a href="https://t.me/hamzaamirni" target="_blank" rel="noreferrer" className="btn-social telegram">✈️ Telegram</a>
+              <a href="https://hamzaamirni.netlify.app" target="_blank" rel="noreferrer" className="btn-social portfolio">🌐 Portfolio / Website</a>
             </div>
           </div>
         )}
