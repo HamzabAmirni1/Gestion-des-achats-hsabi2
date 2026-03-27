@@ -162,6 +162,10 @@ export default function App() {
 
   const unPaidVentes = dashboardVentes.filter(v => v.statut_paiement === 'non_payé').reduce((acc, curr) => acc + (parseFloat(curr.prix) * parseFloat(curr.quantite)), 0);
   const unPaidAchats = dashboardAchats.filter(a => a.statut_paiement === 'non_payé').reduce((acc, curr) => acc + (parseFloat(curr.prix) * parseFloat(curr.quantite)), 0);
+  const paidVentes = totalVentes - unPaidVentes;
+  const paidAchats = totalAchats - unPaidAchats;
+  const caisse = paidVentes - paidAchats; // السيولة الحقيقية المتوفرة في الصندوق
+  
 
   // Advanced Statistics: Best Selling Product
   const bestSellingStats = useMemo(() => {
@@ -537,14 +541,37 @@ export default function App() {
               <div className="stat-card expenses">
                 <div className="stat-icon"><ShoppingCart /></div>
                 <div className="stat-value">{totalAchats.toLocaleString()} DA</div>
-                <div className="stat-label">إجمالي المصاريف</div>
+                <div className="stat-label">المصاريف الإجمالية</div>
               </div>
+
+              {/* الصندوق (السيولة الحقيقية) */}
+              <div className="stat-card" style={{background: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.3)'}}>
+                <div className="stat-icon" style={{color: '#3b82f6'}}><LayoutDashboard /></div>
+                <div className="stat-value" style={{ color: caisse < 0 ? 'var(--danger)' : '#3b82f6' }}>
+                  {caisse.toLocaleString()} DA
+                </div>
+                <div className="stat-label">الصندوق (السيولة الحالية)</div>
+              </div>
+
+              {/* الربح المتوقع */}
               <div className="stat-card profit">
                 <div className="stat-icon"><LayoutDashboard /></div>
                 <div className="stat-value" style={{ color: benefice < 0 ? 'var(--danger)' : 'var(--warning)' }}>
                   {benefice.toLocaleString()} DA
                 </div>
-                <div className="stat-label">الصافي (الربح)</div>
+                <div className="stat-label">الربح الإجمالي (المتوقع)</div>
+              </div>
+              
+              {/* ديون */}
+              <div className="stat-card" style={{background: 'rgba(16, 185, 129, 0.05)', borderColor: 'var(--success)'}}>
+                <div className="stat-icon" style={{color: 'var(--success)'}}><TrendingDown style={{transform: "scaleY(-1)"}} /></div>
+                <div className="stat-value" style={{color: 'var(--success)'}}>{unPaidVentes.toLocaleString()} DA</div>
+                <div className="stat-label">الديون عند الزبائن (كريدي للحصول)</div>
+              </div>
+              <div className="stat-card" style={{background: 'rgba(239, 68, 68, 0.05)', borderColor: 'var(--danger)'}}>
+                <div className="stat-icon" style={{color: 'var(--danger)'}}><ShoppingCart /></div>
+                <div className="stat-value" style={{color: 'var(--danger)'}}>{unPaidAchats.toLocaleString()} DA</div>
+                <div className="stat-label">الديون التي عليّ (كريدي للدفع)</div>
               </div>
               
               {/* Product Excellence Advanced Stats */}
@@ -563,16 +590,6 @@ export default function App() {
                 <div className="stat-icon"><Package /></div>
                 <div className="stat-value">{totalStock.toLocaleString()}</div>
                 <div className="stat-label">الكمية الإجمالية للمخزون</div>
-              </div>
-              <div className="stat-card" style={{background: 'rgba(239, 68, 68, 0.05)', borderColor: 'var(--danger)'}}>
-                <div className="stat-icon" style={{color: 'var(--danger)'}}><ShoppingCart /></div>
-                <div className="stat-value" style={{color: 'var(--danger)'}}>{unPaidAchats.toLocaleString()} DA</div>
-                <div className="stat-label">الديون عليّ (غير مدفوعة)</div>
-              </div>
-              <div className="stat-card" style={{background: 'rgba(16, 185, 129, 0.05)', borderColor: 'var(--success)'}}>
-                <div className="stat-icon" style={{color: 'var(--success)'}}><TrendingDown style={{transform: "scaleY(-1)"}} /></div>
-                <div className="stat-value" style={{color: 'var(--success)'}}>{unPaidVentes.toLocaleString()} DA</div>
-                <div className="stat-label">الديون عند الزبائن (غير محصلة)</div>
               </div>
             </div>
 
