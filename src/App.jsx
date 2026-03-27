@@ -266,7 +266,7 @@ export default function App() {
       
       // إضافة هامش صغير للحفاظ على التنسيق
       const margin = 10;
-      pdf.addImage(imgData, 'PNG', margin, margin, pdfWidth - (margin*2), pdfHeight - (margin*2));
+      pdf.addImage(imgData, 'JPEG', margin, margin, pdfWidth - (margin*2), pdfHeight - (margin*2));
       pdf.save(`Rapport_Hsabi_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
       Swal.close();
       Swal.fire('تم بنجاح!', 'تم حفظ التقرير كـ PDF بجودة عالية', 'success');
