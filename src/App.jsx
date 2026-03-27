@@ -18,7 +18,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { supabase } from './supabaseClient';
-import html2canvas from 'html2canvas';
+import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import Swal from 'sweetalert2';
 
@@ -250,17 +250,16 @@ export default function App() {
     });
 
     try {
-      const canvas = await html2canvas(input, { 
-        scale: 2, // خفض الجودة قليلاً لتجنب انهيار المتصفح (Canvas limit)
-        useCORS: true, 
-        logging: false,
+      const imgData = await htmlToImage.toJpeg(input, { 
+        quality: 0.8,
+        pixelRatio: 2, // جودة نقية وبدون تجاوز قدرة المتصفح
         backgroundColor: theme === 'dark' ? '#0f172a' : '#ffffff' 
       });
-      const imgData = canvas.toDataURL('image/jpeg', 0.8);
       
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
       
       const margin = 10;
       pdf.addImage(imgData, 'JPEG', margin, margin, pdfWidth - (margin*2), pdfHeight - (margin*2));
