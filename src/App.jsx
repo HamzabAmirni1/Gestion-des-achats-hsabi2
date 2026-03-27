@@ -41,7 +41,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalType, setModalType] = useState('achat'); 
+  const [modalType, setModalType] = useState('achat'); // achat, vente, stock_add
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -133,16 +133,18 @@ export default function App() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const { nom, quantite, prix, date, client_nom, client_tel } = formData;
-    if (!nom || !quantite || !prix || !date) return;
+    
+    if (!nom || !quantite || !date) return;
+    if (modalType !== 'stock_add' && !prix) return;
     
     setIsSubmitting(true);
-    const table = modalType === 'achat' ? 'achats' : 'ventes';
+    const table = modalType === 'vente' ? 'ventes' : 'achats'; // stock_add goes as Achat with 0 cost
     
     const newItem = {
       user_id: session.user.id,
       nom: nom.trim(),
       quantite: parseFloat(quantite),
-      prix: parseFloat(prix),
+      prix: modalType === 'stock_add' ? 0 : parseFloat(prix),
       date
     };
 
@@ -154,8 +156,9 @@ export default function App() {
     try {
       const { data, error } = await supabase.from(table).insert([newItem]).select();
       if (!error && data) {
-        if (modalType === 'achat') setAchats([data[0], ...achats]);
+        if (modalType === 'achat' || modalType === 'stock_add') setAchats([data[0], ...achats]);
         else setVentes([data[0], ...ventes]);
+        Swal.fire('تم الحفظ!', 'تم تسجيل العملية بنجاح.', 'success');
       } else {
         console.error("Supabase Error:", error);
         Swal.fire('خطأ!', 'حدث خطأ أثناء الحفظ: ' + (error?.message || ''), 'error');
@@ -177,7 +180,7 @@ export default function App() {
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
       cancelButtonColor: '#64748b',
-      confirmButtonText: 'نعم، احذف',
+      confirmButtonText: 'نعم، احذف!',
       cancelButtonText: 'إلغاء'
     });
     if (!result.isConfirmed) return;
@@ -188,6 +191,7 @@ export default function App() {
       if (!error) {
         if (type === 'achat') setAchats(achats.filter(a => a.id !== id));
         else setVentes(ventes.filter(v => v.id !== id));
+        Swal.fire('تم الحذف!', 'تمت إزالة العملية.', 'success');
       }
     } catch (err) {
       console.error("Error deleting item:", err);
@@ -223,24 +227,40 @@ export default function App() {
     if (error) setAuthError(error.message);
   };
 
-  // PDF Export Function
-  const handleDownloadPDF = () => {
+  // PDF Export Function fixed!
+  const handleDownloadPDF = async () => {
     const input = document.getElementById('pdf-content');
+    if (!input) {
+      Swal.fire('خطأ!', 'لا يمكن العثور على محتوى للطباعة!', 'error');
+      return;
+    }
     
-    html2canvas(input, { scale: 2, backgroundColor: theme === 'dark' ? '#0f172a' : '#f8fafc' })
-      .then((canvas) => {
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF('p', 'mm', 'a4', true);
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-        
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
-        pdf.save(`Rapport_Hsabi_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
-      })
-      .catch((err) => {
-        console.error("Error generating PDF", err);
-        Swal.fire('خطأ!', 'حدث خطأ أثناء تحميل الملف', 'error');
+    Swal.fire({
+      title: 'جاري تحضير الملف...',
+      text: 'يرجى الانتظار قليلا.',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
+    try {
+      const canvas = await html2canvas(input, { 
+        scale: 2, 
+        useCORS: true, 
+        backgroundColor: theme === 'dark' ? '#0f172a' : '#f8fafc' 
       });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4'); 
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`Rapport_Hsabi_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+      Swal.close();
+      Swal.fire('تم بنجاح!', 'تم حفظ التقرير كـ PDF', 'success');
+    } catch (err) {
+      console.error("Error generating PDF:", err);
+      Swal.fire('خطأ!', 'حدث خطأ أثناء تحميل الملف', 'error');
+    }
   };
 
   // Filtered Data
@@ -268,7 +288,8 @@ export default function App() {
     achats.forEach(a => {
       const d = new Date(a.date);
       const mIdx = last6Months.findIndex(lm => lm.index === d.getMonth());
-      if (mIdx !== -1) mAchats[mIdx] += Math.abs(a.quantite * a.prix);
+      // Ignore stock_add with 0 price in chart expenses
+      if (mIdx !== -1 && a.prix > 0) mAchats[mIdx] += Math.abs(a.quantite * a.prix);
     });
 
     ventes.forEach(v => {
@@ -361,7 +382,7 @@ export default function App() {
   return (
     <div className="app-wrapper" id="pdf-content">
       {/* Header */}
-      <header className="header">
+      <header className="header" data-html2canvas-ignore="true">
         <div className="header-title">
           <TrendingDown className="icon" />
           <span>إدارة حسابات المصنع</span>
@@ -371,12 +392,10 @@ export default function App() {
             <RefreshCw size={22} className={loading ? "spin" : ""} />
           </button>
           
-          {/* Print Button */}
           <button className="icon-btn" onClick={() => window.print()} title="طباعة الصفحة">
             <Printer size={22} />
           </button>
 
-          {/* Download PDF Button */}
           <button className="icon-btn" onClick={handleDownloadPDF} title="تنزيل PDF">
             <Download size={22} />
           </button>
@@ -391,7 +410,7 @@ export default function App() {
       </header>
 
       {/* Navigation */}
-      <nav className="nav-tabs">
+      <nav className="nav-tabs" data-html2canvas-ignore="true">
         <button className={`nav-tab ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
           <LayoutDashboard size={20} /> لوحة التحكم
         </button>
@@ -454,7 +473,7 @@ export default function App() {
 
         {(activeTab === 'achats' || activeTab === 'ventes') && (
           <div className="glass-container animate-enter">
-            <div className="section-header">
+            <div className="section-header" data-html2canvas-ignore="true">
               <div className="section-title">
                 {activeTab === 'achats' ? 'إدارة المصاريف' : 'إدارة المبيعات'}
               </div>
@@ -489,7 +508,7 @@ export default function App() {
                     <th>السعر (للوحدة)</th>
                     <th>الإجمالي</th>
                     <th>التاريخ</th>
-                    <th>حذف</th>
+                    <th data-html2canvas-ignore="true">حذف</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -499,12 +518,12 @@ export default function App() {
                     <tr key={item.id}>
                       {activeTab === 'ventes' && <td style={{fontWeight: '700'}}>{item.client_nom || '-'}</td>}
                       {activeTab === 'ventes' && <td>{item.client_tel || '-'}</td>}
-                      <td style={activeTab === 'achats' ? {fontWeight: '700'} : {}}>{item.nom}</td>
+                      <td style={activeTab === 'achats' ? {fontWeight: '700'} : {}}>{item.nom}{item.prix === 0 && ' (إضافة مخزون)'}</td>
                       <td>{item.quantite}</td>
                       <td>{item.prix.toLocaleString()} DA</td>
                       <td><span className={activeTab === 'achats' ? "badge badge-danger" : "badge badge-success"}>{(item.prix * item.quantite).toLocaleString()} DA</span></td>
                       <td>{new Date(item.date).toLocaleDateString('ar-DZ')}</td>
-                      <td>
+                      <td data-html2canvas-ignore="true">
                         <button onClick={() => deleteItem(item.id, activeTab === 'achats' ? 'achat' : 'vente')} className="icon-btn" style={{width: "35px", height: "35px", background: "rgba(239, 68, 68, 0.1)", color: "var(--danger)", border: "none"}}>
                           <Trash2 size={16} />
                         </button>
@@ -520,7 +539,7 @@ export default function App() {
 
         {activeTab === 'stock' && (
           <div className="glass-container animate-enter">
-            <div className="section-header">
+            <div className="section-header" data-html2canvas-ignore="true">
               <div className="section-title">المخزون الحالي</div>
               <div className="search-bar">
                 <Search size={20} color="var(--text-muted)" />
@@ -531,6 +550,13 @@ export default function App() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
+              <button 
+                className="btn-primary" 
+                onClick={() => { setModalType('stock_add'); setIsModalOpen(true); }}
+                style={{background: 'var(--primary)'}}
+              >
+                <Plus size={20} /> زيادة المنتجات للمخزون
+              </button>
             </div>
 
             <div style={{overflowX: 'auto'}}>
@@ -575,7 +601,7 @@ export default function App() {
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2 className="modal-title">
-                {modalType === 'achat' ? 'إضافة مصروف جديد' : 'إضافة عملية بيع'}
+                {modalType === 'achat' ? 'إضافة مصروف جديد' : modalType === 'vente' ? 'إضافة عملية بيع' : 'إضافة منتج مباشر للمخزون'}
               </h2>
               <button className="close-btn" disabled={isSubmitting} onClick={() => setIsModalOpen(false)}>×</button>
             </div>
@@ -609,13 +635,13 @@ export default function App() {
               )}
 
               <div className="form-group">
-                <label>اسم {modalType === 'achat' ? 'المادة' : 'المنتج'}</label>
+                <label>{(modalType === 'achat' || modalType === 'stock_add') ? 'اسم السلعة / المنتج' : 'المنتج المباع'}</label>
                 <input 
                   type="text" 
                   className="form-control" 
                   required
                   disabled={isSubmitting}
-                  placeholder={modalType === 'achat' ? "مثلا: Parfum, Javel..." : "مثلا: Produit nettoyant..."}
+                  placeholder="مثلا: Produit nettoyant..."
                   value={formData.nom}
                   onChange={e => setFormData({...formData, nom: e.target.value})}
                 />
@@ -633,19 +659,23 @@ export default function App() {
                   onChange={e => setFormData({...formData, quantite: e.target.value})}
                 />
               </div>
-              <div className="form-group">
-                <label>السعر (للوحدة بالدينار)</label>
-                <input 
-                  type="number" 
-                  step="0.01"
-                  className="form-control" 
-                  required
-                  disabled={isSubmitting}
-                  placeholder="0"
-                  value={formData.prix}
-                  onChange={e => setFormData({...formData, prix: e.target.value})}
-                />
-              </div>
+              
+              {modalType !== 'stock_add' && (
+                <div className="form-group">
+                  <label>السعر (للوحدة بالدينار)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    className="form-control" 
+                    required={modalType !== 'stock_add'}
+                    disabled={isSubmitting}
+                    placeholder="0"
+                    value={formData.prix}
+                    onChange={e => setFormData({...formData, prix: e.target.value})}
+                  />
+                </div>
+              )}
+
               <div className="form-group">
                 <label>التاريخ</label>
                 <input 
@@ -658,17 +688,19 @@ export default function App() {
                 />
               </div>
               
-              <div style={{marginTop: "15px", padding: "15px", background: "rgba(79, 70, 229, 0.05)", borderRadius: "12px", border: "1px dashed var(--primary)"}}>
-                <strong>الإجمالي: </strong>
-                <span style={{fontSize: "1.2rem", color: "var(--primary)", fontWeight: "bold"}}>
-                  {((parseFloat(formData.prix) || 0) * (parseFloat(formData.quantite) || 0)).toLocaleString()} DA
-                </span>
-              </div>
+              {modalType !== 'stock_add' && (
+                <div style={{marginTop: "15px", padding: "15px", background: "rgba(79, 70, 229, 0.05)", borderRadius: "12px", border: "1px dashed var(--primary)"}}>
+                  <strong>الإجمالي: </strong>
+                  <span style={{fontSize: "1.2rem", color: "var(--primary)", fontWeight: "bold"}}>
+                    {((parseFloat(formData.prix) || 0) * (parseFloat(formData.quantite) || 0)).toLocaleString()} DA
+                  </span>
+                </div>
+              )}
 
               <div className="modal-footer">
                 <button type="button" className="btn-cancel" disabled={isSubmitting} onClick={() => setIsModalOpen(false)}>إلغاء</button>
                 <button type="submit" className="btn-primary" disabled={isSubmitting}>
-                  {isSubmitting ? 'جاري الحفظ...' : 'حفظ البيانات'}
+                  {isSubmitting ? 'جاري الحفظ...' : modalType === 'stock_add' ? 'إضافة للمخزون' : 'حفظ البيانات'}
                 </button>
               </div>
             </form>
