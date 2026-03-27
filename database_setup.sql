@@ -1,8 +1,13 @@
--- SQL Script to Set up Supabase Data Model
+-- SQL Script to Set up Supabase Data Model (Updated with Auth & Client fields)
 -- You need to run this command in your Supabase project's SQL Editor
 
-CREATE TABLE IF NOT EXISTS achats (
+-- Drop tables if they already exist so we can recreate them with the new schema easily
+DROP TABLE IF EXISTS achats CASCADE;
+DROP TABLE IF EXISTS ventes CASCADE;
+
+CREATE TABLE achats (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid DEFAULT auth.uid() NOT NULL,
   nom text NOT NULL,
   quantite numeric NOT NULL,
   prix numeric NOT NULL,
@@ -10,26 +15,29 @@ CREATE TABLE IF NOT EXISTS achats (
   created_at timestamp with time zone DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS ventes (
+CREATE TABLE ventes (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  nom text NOT NULL,
+  user_id uuid DEFAULT auth.uid() NOT NULL,
+  client_nom text,
+  client_tel text,
+  nom text NOT NULL, -- "what he bought"
   quantite numeric NOT NULL,
   prix numeric NOT NULL,
   date date NOT NULL,
   created_at timestamp with time zone DEFAULT now()
 );
 
--- Enable Row Level Security but allow unauthenticated access since we are building a simple interface without auth tokens
--- If you need auth later, change these policies
+-- Enable Row Level Security (RLS)
 ALTER TABLE achats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ventes ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow all read achats" ON achats FOR SELECT USING (true);
-CREATE POLICY "Allow all insert achats" ON achats FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow all delete achats" ON achats FOR DELETE USING (true);
-CREATE POLICY "Allow all update achats" ON achats FOR UPDATE USING (true);
+-- Security Policies so each user only sees their own data
+CREATE POLICY "Users can only view their own achats" ON achats FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can only insert their own achats" ON achats FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can only update their own achats" ON achats FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can only delete their own achats" ON achats FOR DELETE USING (auth.uid() = user_id);
 
-CREATE POLICY "Allow all read ventes" ON ventes FOR SELECT USING (true);
-CREATE POLICY "Allow all insert ventes" ON ventes FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow all delete ventes" ON ventes FOR DELETE USING (true);
-CREATE POLICY "Allow all update ventes" ON ventes FOR UPDATE USING (true);
+CREATE POLICY "Users can only view their own ventes" ON ventes FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can only insert their own ventes" ON ventes FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can only update their own ventes" ON ventes FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can only delete their own ventes" ON ventes FOR DELETE USING (auth.uid() = user_id);

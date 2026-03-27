@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, ShoppingCart, TrendingDown, Package, 
-  Plus, Search, Download, Moon, Sun, Trash2, RefreshCw
+  Plus, Search, Download, Moon, Sun, Trash2, RefreshCw,
+  LogOut, User, Printer
 } from 'lucide-react';
 import { format } from 'date-fns';
 import {
@@ -17,12 +18,21 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { supabase } from './supabaseClient';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler
 );
 
 export default function App() {
+  const [session, setSession] = useState(null);
+  const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [theme, setTheme] = useState('light');
   const [achats, setAchats] = useState([]);
@@ -35,6 +45,8 @@ export default function App() {
   
   const [formData, setFormData] = useState({
     nom: '',
+    client_nom: '',
+    client_tel: '',
     quantite: '',
     prix: '',
     date: format(new Date(), 'yyyy-MM-dd')
@@ -42,8 +54,24 @@ export default function App() {
 
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Handle Authentication Session
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   // Fetch Data from Supabase
   const fetchData = async () => {
+    if (!session) return;
     setLoading(true);
     try {
       const [achatsRes, ventesRes] = await Promise.all([
@@ -62,7 +90,7 @@ export default function App() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [session]);
 
   // Theme
   useEffect(() => {
@@ -103,31 +131,40 @@ export default function App() {
   // Form Submit
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const { nom, quantite, prix, date } = formData;
+    const { nom, quantite, prix, date, client_nom, client_tel } = formData;
     if (!nom || !quantite || !prix || !date) return;
     
     setIsSubmitting(true);
     const table = modalType === 'achat' ? 'achats' : 'ventes';
     
     const newItem = {
+      user_id: session.user.id,
       nom: nom.trim(),
       quantite: parseFloat(quantite),
       prix: parseFloat(prix),
       date
     };
 
+    if (modalType === 'vente') {
+      newItem.client_nom = client_nom;
+      newItem.client_tel = client_tel;
+    }
+
     try {
       const { data, error } = await supabase.from(table).insert([newItem]).select();
       if (!error && data) {
         if (modalType === 'achat') setAchats([data[0], ...achats]);
         else setVentes([data[0], ...ventes]);
+      } else {
+        console.error("Supabase Error:", error);
+        alert("حدث خطأ أثناء الحفظ! " + (error?.message || ""));
       }
     } catch (err) {
       console.error("Error saving data:", err);
     } finally {
       setIsSubmitting(false);
       setIsModalOpen(false);
-      setFormData({ nom: '', quantite: '', prix: '', date: format(new Date(), 'yyyy-MM-dd') });
+      setFormData({ nom: '', client_nom: '', client_tel: '', quantite: '', prix: '', date: format(new Date(), 'yyyy-MM-dd') });
     }
   };
 
@@ -147,9 +184,61 @@ export default function App() {
     }
   };
 
+  // Auth Functions
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError('');
+    
+    try {
+      let result;
+      if (authMode === 'login') {
+        result = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
+      } else {
+        result = await supabase.auth.signUp({ email: authEmail, password: authPassword });
+        if(result.data?.user && !result.data?.session) {
+          alert("تم إنشاء حسابك، يرجى تأكيد بريدك الإلكتروني إذا كان مطلوباً أو قم بتسجيل الدخول مباشرة.");
+        }
+      }
+      if (result.error) throw result.error;
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const signInWithGoogle = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
+    if (error) setAuthError(error.message);
+  };
+
+  // PDF Export Function
+  const handleDownloadPDF = () => {
+    const input = document.getElementById('pdf-content');
+    
+    html2canvas(input, { scale: 2, backgroundColor: theme === 'dark' ? '#0f172a' : '#f8fafc' })
+      .then((canvas) => {
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('p', 'mm', 'a4', true);
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
+        pdf.save(`Rapport_Hsabi_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+      })
+      .catch((err) => {
+        console.error("Error generating PDF", err);
+        alert("حدث خطأ أثناء تحميل PDF");
+      });
+  };
+
   // Filtered Data
   const filteredAchats = achats.filter(item => item.nom.toLowerCase().includes(searchQuery.toLowerCase()));
-  const filteredVentes = ventes.filter(item => item.nom.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredVentes = ventes.filter(item => 
+    item.nom.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    (item.client_nom && item.client_nom.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
   const filteredStock = stock.filter(item => item.nom.toLowerCase().includes(searchQuery.toLowerCase()));
 
   // Chart Data
@@ -169,13 +258,13 @@ export default function App() {
     achats.forEach(a => {
       const d = new Date(a.date);
       const mIdx = last6Months.findIndex(lm => lm.index === d.getMonth());
-      if (mIdx !== -1) mAchats[mIdx] += a.quantite * a.prix;
+      if (mIdx !== -1) mAchats[mIdx] += Math.abs(a.quantite * a.prix);
     });
 
     ventes.forEach(v => {
       const d = new Date(v.date);
       const mIdx = last6Months.findIndex(lm => lm.index === d.getMonth());
-      if (mIdx !== -1) mVentes[mIdx] += v.quantite * v.prix;
+      if (mIdx !== -1) mVentes[mIdx] += Math.abs(v.quantite * v.prix);
     });
 
     return {
@@ -201,8 +290,66 @@ export default function App() {
     };
   }, [achats, ventes]);
 
+
+  // -------------- AUTH SCREEN --------------
+  if (!session) {
+    return (
+      <div className="auth-container">
+        <div className="auth-card">
+          <div className="auth-icon"><User size={60} /></div>
+          <h1 className="auth-title">مرحباً بك في تطبيقي</h1>
+          <p className="auth-subtitle">
+            {authMode === 'login' ? 'قم بتسجيل الدخول للوصول لحساباتك' : 'أنشئ حساباً جديداً للبدء'}
+          </p>
+
+          <form className="auth-form" onSubmit={handleAuth}>
+            <div className="form-group">
+              <label>البريد الإلكتروني</label>
+              <input 
+                type="email" 
+                className="form-control" 
+                required
+                value={authEmail}
+                onChange={e => setAuthEmail(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label>كلمة السر</label>
+              <input 
+                type="password" 
+                className="form-control" 
+                required
+                value={authPassword}
+                onChange={e => setAuthPassword(e.target.value)}
+                minLength="6"
+              />
+            </div>
+            
+            {authError && <div style={{color: 'var(--danger)', fontSize: '0.9rem', marginBottom: '10px'}}>{authError}</div>}
+            
+            <button type="submit" className="btn-primary" style={{width: '100%', justifyContent: 'center'}} disabled={authLoading}>
+              {authLoading ? 'جار التحميل...' : (authMode === 'login' ? 'تسجيل الدخول' : 'إنشاء حساب')}
+            </button>
+          </form>
+
+          <button className="auth-switch" onClick={() => {setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError('');}}>
+            {authMode === 'login' ? 'ليس لديك حساب؟ أنشئ حساباً' : 'لديك حساب بالفعل؟ سجل دخولك'}
+          </button>
+
+          <div className="auth-divider">أو</div>
+
+          <button className="btn-google" onClick={signInWithGoogle}>
+            <svg width="20" height="20" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/><path d="M1 1h22v22H1z" fill="none"/></svg>
+            تسجيل الدخول باستخدام Google
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------- MAIN APP --------------
   return (
-    <div className="app-wrapper">
+    <div className="app-wrapper" id="pdf-content">
       {/* Header */}
       <header className="header">
         <div className="header-title">
@@ -213,11 +360,22 @@ export default function App() {
           <button className="icon-btn" onClick={fetchData} title="تحديث البيانات" disabled={loading}>
             <RefreshCw size={22} className={loading ? "spin" : ""} />
           </button>
-          <button className="icon-btn" onClick={() => window.print()} title="تصدير PDF">
+          
+          {/* Print Button */}
+          <button className="icon-btn" onClick={() => window.print()} title="طباعة الصفحة">
+            <Printer size={22} />
+          </button>
+
+          {/* Download PDF Button */}
+          <button className="icon-btn" onClick={handleDownloadPDF} title="تنزيل PDF">
             <Download size={22} />
           </button>
-          <button className="icon-btn" onClick={toggleTheme}>
+          
+          <button className="icon-btn" onClick={toggleTheme} title="تغيير المظهر">
             {theme === 'light' ? <Moon size={22} /> : <Sun size={22} />}
+          </button>
+          <button className="icon-btn" onClick={() => supabase.auth.signOut()} title="تسجيل الخروج">
+            <LogOut size={22} color="var(--danger)" />
           </button>
         </div>
       </header>
@@ -294,7 +452,7 @@ export default function App() {
                 <Search size={20} color="var(--text-muted)" />
                 <input 
                   type="text" 
-                  placeholder="ابحث عن منتج..." 
+                  placeholder={activeTab === 'achats' ? "ابحث عن منتج..." : "ابحث عن منتج أو عميل..."} 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -314,6 +472,8 @@ export default function App() {
               <table className="data-table">
                 <thead>
                   <tr>
+                    {activeTab === 'ventes' && <th>اسم العميل</th>}
+                    {activeTab === 'ventes' && <th>رقم الهاتف</th>}
                     <th>المنتج</th>
                     <th>الكمية</th>
                     <th>السعر (للوحدة)</th>
@@ -324,10 +484,12 @@ export default function App() {
                 </thead>
                 <tbody>
                   {(activeTab === 'achats' ? filteredAchats : filteredVentes).length === 0 ? (
-                    <tr><td colSpan="6" style={{textAlign: "center", padding: "30px"}}>لا توجد بيانات</td></tr>
+                    <tr><td colSpan={activeTab === 'ventes' ? "8" : "6"} style={{textAlign: "center", padding: "30px"}}>لا توجد بيانات</td></tr>
                   ) : (activeTab === 'achats' ? filteredAchats : filteredVentes).map(item => (
                     <tr key={item.id}>
-                      <td style={{fontWeight: '700'}}>{item.nom}</td>
+                      {activeTab === 'ventes' && <td style={{fontWeight: '700'}}>{item.client_nom || '-'}</td>}
+                      {activeTab === 'ventes' && <td>{item.client_tel || '-'}</td>}
+                      <td style={activeTab === 'achats' ? {fontWeight: '700'} : {}}>{item.nom}</td>
                       <td>{item.quantite}</td>
                       <td>{item.prix.toLocaleString()} DA</td>
                       <td><span className={activeTab === 'achats' ? "badge badge-danger" : "badge badge-success"}>{(item.prix * item.quantite).toLocaleString()} DA</span></td>
@@ -408,6 +570,34 @@ export default function App() {
               <button className="close-btn" disabled={isSubmitting} onClick={() => setIsModalOpen(false)}>×</button>
             </div>
             <form onSubmit={handleSubmit}>
+              
+              {modalType === 'vente' && (
+                <>
+                  <div className="form-group">
+                    <label>اسم العميل (اختياري)</label>
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      disabled={isSubmitting}
+                      placeholder="أدخل اسم العميل..."
+                      value={formData.client_nom}
+                      onChange={e => setFormData({...formData, client_nom: e.target.value})}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>رقم هاتف العميل (اختياري)</label>
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      disabled={isSubmitting}
+                      placeholder="مثال: 0550123456"
+                      value={formData.client_tel}
+                      onChange={e => setFormData({...formData, client_tel: e.target.value})}
+                    />
+                  </div>
+                </>
+              )}
+
               <div className="form-group">
                 <label>اسم {modalType === 'achat' ? 'المادة' : 'المنتج'}</label>
                 <input 
