@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, ShoppingCart, TrendingDown, Package, 
   Plus, Search, Download, Moon, Sun, Trash2, RefreshCw,
-  LogOut, User, Printer, Award, Calendar
+  LogOut, User, Printer, Award, Calendar, Smartphone
 } from 'lucide-react';
 import { format, isThisWeek, isThisMonth, isThisYear, isToday, parseISO } from 'date-fns';
 import {
@@ -56,6 +56,9 @@ export default function App() {
 
   const [searchQuery, setSearchQuery] = useState('');
   
+  // PWA Install Prompt
+  const [installPrompt, setInstallPrompt] = useState(null);
+
   // New Dashboard Filter (Year, Month, Week, etc.)
   const [dashboardFilter, setDashboardFilter] = useState('all');
 
@@ -103,6 +106,25 @@ export default function App() {
   }, [theme]);
 
   const toggleTheme = () => setTheme(theme === 'light' ? 'dark' : 'light');
+
+  // PWA Logic
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setInstallPrompt(null);
+    }
+  };
 
   // Computed Stock (Always All-Time)
   const stock = useMemo(() => {
@@ -468,6 +490,13 @@ export default function App() {
           <span>إدارة حسابات المصنع</span>
         </div>
         <div className="header-actions">
+          {installPrompt && (
+            <button className="icon-btn pulse-button" onClick={handleInstallClick} title="تثبيت التطبيق (PWA)" style={{background: 'var(--primary)', color: 'white', padding: '5px 12px', height: '38px'}}>
+              <Smartphone size={20} />
+              <span style={{fontSize: '0.8rem', marginLeft: '5px', fontWeight: 'bold'}} className="hide-mobile">تثبيت التطبيق</span>
+            </button>
+          )}
+
           <button className="icon-btn" onClick={fetchData} title="تحديث البيانات" disabled={loading}>
             <RefreshCw size={22} className={loading ? "spin" : ""} />
           </button>
