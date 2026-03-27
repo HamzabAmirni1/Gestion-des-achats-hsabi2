@@ -926,6 +926,37 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* PWA Mobile Bottom Banner */}
+      {installPrompt && (
+        <div className="pwa-banner-mobile animate-enter" style={{
+          position: 'fixed', bottom: '85px', left: '20px', right: '20px', 
+          zIndex: 1000, background: 'rgba(79, 70, 229, 0.95)', color: 'white',
+          padding: '15px 20px', borderRadius: '16px', display: 'flex', 
+          alignItems: 'center', justifyContent: 'space-between', 
+          boxShadow: '0 10px 25px -5px rgba(79, 70, 229, 0.5)',
+          backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)'
+        }}>
+          <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+            <div style={{background: 'white', padding: '8px', borderRadius: '10px'}}>
+              <Smartphone size={24} color="var(--primary)" />
+            </div>
+            <div>
+              <div style={{fontWeight: '700', fontSize: '1rem'}}>تثبيت التطبيق</div>
+              <div style={{fontSize: '0.8rem', opacity: 0.9}}>سهولة وصول أسرع بمقرة واحدة</div>
+            </div>
+          </div>
+          <button 
+            onClick={handleInstallClick}
+            style={{
+              background: 'white', color: 'var(--primary)', border: 'none', 
+              padding: '8px 20px', borderRadius: '10px', fontWeight: '800', 
+              fontSize: '0.9rem', cursor: 'pointer'
+            }}
+          >
+            تثبيت الآن
+          </button>
+        </div>
+      )}
     </div>
   );
 }
