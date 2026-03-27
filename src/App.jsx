@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, ShoppingCart, TrendingDown, Package, 
   Plus, Search, Download, Moon, Sun, Trash2, RefreshCw,
-  LogOut, User, Printer
+  LogOut, User, Printer, Award, Calendar
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, isThisWeek, isThisMonth, isThisYear, isToday, parseISO } from 'date-fns';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -50,10 +50,14 @@ export default function App() {
     client_tel: '',
     quantite: '',
     prix: '',
+    statut_paiement: 'payé',
     date: format(new Date(), 'yyyy-MM-dd')
   });
 
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // New Dashboard Filter (Year, Month, Week, etc.)
+  const [dashboardFilter, setDashboardFilter] = useState('all');
 
   // Handle Authentication Session
   useEffect(() => {
@@ -100,7 +104,7 @@ export default function App() {
 
   const toggleTheme = () => setTheme(theme === 'light' ? 'dark' : 'light');
 
-  // Computed Stock
+  // Computed Stock (Always All-Time)
   const stock = useMemo(() => {
     const stockMap = new Map();
     
@@ -123,11 +127,58 @@ export default function App() {
     return Array.from(stockMap.values()).filter(item => item.quantite > 0);
   }, [achats, ventes]);
 
-  // Calculations
-  const totalAchats = achats.reduce((acc, curr) => acc + (parseFloat(curr.prix) * parseFloat(curr.quantite)), 0);
-  const totalVentes = ventes.reduce((acc, curr) => acc + (parseFloat(curr.prix) * parseFloat(curr.quantite)), 0);
+
+  // Filtered Dashboard Collections based on selected Period
+  const dashboardAchats = useMemo(() => {
+    return achats.filter(a => {
+      if (dashboardFilter === 'all') return true;
+      const d = parseISO(a.date);
+      if (dashboardFilter === 'year') return isThisYear(d);
+      if (dashboardFilter === 'month') return isThisMonth(d);
+      if (dashboardFilter === 'week') return isThisWeek(d);
+      if (dashboardFilter === 'today') return isToday(d);
+      return true;
+    });
+  }, [achats, dashboardFilter]);
+
+  const dashboardVentes = useMemo(() => {
+    return ventes.filter(v => {
+      if (dashboardFilter === 'all') return true;
+      const d = parseISO(v.date);
+      if (dashboardFilter === 'year') return isThisYear(d);
+      if (dashboardFilter === 'month') return isThisMonth(d);
+      if (dashboardFilter === 'week') return isThisWeek(d);
+      if (dashboardFilter === 'today') return isToday(d);
+      return true;
+    });
+  }, [ventes, dashboardFilter]);
+
+
+  // Core Dashboard Calculations dependent on Date Filter
+  const totalAchats = dashboardAchats.reduce((acc, curr) => acc + (parseFloat(curr.prix) * parseFloat(curr.quantite)), 0);
+  const totalVentes = dashboardVentes.reduce((acc, curr) => acc + (parseFloat(curr.prix) * parseFloat(curr.quantite)), 0);
   const benefice = totalVentes - totalAchats;
-  const totalStock = stock.reduce((acc, curr) => acc + parseFloat(curr.quantite), 0);
+  const totalStock = stock.reduce((acc, curr) => acc + parseFloat(curr.quantite), 0); // Total pieces in stock
+
+  const unPaidVentes = dashboardVentes.filter(v => v.statut_paiement === 'non_payé').reduce((acc, curr) => acc + (parseFloat(curr.prix) * parseFloat(curr.quantite)), 0);
+  const unPaidAchats = dashboardAchats.filter(a => a.statut_paiement === 'non_payé').reduce((acc, curr) => acc + (parseFloat(curr.prix) * parseFloat(curr.quantite)), 0);
+
+  // Advanced Statistics: Best Selling Product
+  const bestSellingStats = useMemo(() => {
+    const map = new Map();
+    dashboardVentes.forEach(v => {
+      const name = v.nom.trim().toLowerCase();
+      const current = map.get(name) || { nom: v.nom, qte: 0, revenue: 0 };
+      current.qte += parseFloat(v.quantite);
+      current.revenue += (parseFloat(v.quantite) * parseFloat(v.prix));
+      map.set(name, current);
+    });
+    const arr = Array.from(map.values());
+    const bestQte = [...arr].sort((a,b) => b.qte - a.qte)[0];
+    const bestRev = [...arr].sort((a,b) => b.revenue - a.revenue)[0];
+    return { bestQte, bestRev };
+  }, [dashboardVentes]);
+
 
   // Form Submit
   const handleSubmit = async (e) => {
@@ -138,13 +189,14 @@ export default function App() {
     if (modalType !== 'stock_add' && !prix) return;
     
     setIsSubmitting(true);
-    const table = modalType === 'vente' ? 'ventes' : 'achats'; // stock_add goes as Achat with 0 cost
+    const table = modalType === 'vente' ? 'ventes' : 'achats'; 
     
     const newItem = {
       user_id: session.user.id,
       nom: nom.trim(),
       quantite: parseFloat(quantite),
       prix: modalType === 'stock_add' ? 0 : parseFloat(prix),
+      statut_paiement: modalType === 'stock_add' ? 'payé' : formData.statut_paiement,
       date
     };
 
@@ -168,7 +220,7 @@ export default function App() {
     } finally {
       setIsSubmitting(false);
       setIsModalOpen(false);
-      setFormData({ nom: '', client_nom: '', client_tel: '', quantite: '', prix: '', date: format(new Date(), 'yyyy-MM-dd') });
+      setFormData({ nom: '', client_nom: '', client_tel: '', quantite: '', prix: '', statut_paiement: 'payé', date: format(new Date(), 'yyyy-MM-dd') });
     }
   };
 
@@ -196,6 +248,18 @@ export default function App() {
     } catch (err) {
       console.error("Error deleting item:", err);
     }
+  };
+
+  const togglePaiement = async (item, type) => {
+    const table = type === 'achat' ? 'achats' : 'ventes';
+    const newStatus = item.statut_paiement === 'non_payé' ? 'payé' : 'non_payé';
+    try {
+      const { error } = await supabase.from(table).update({ statut_paiement: newStatus }).eq('id', item.id);
+      if (!error) {
+        if (type === 'achat') setAchats(achats.map(a => a.id === item.id ? {...a, statut_paiement: newStatus} : a));
+        else setVentes(ventes.map(v => v.id === item.id ? {...v, statut_paiement: newStatus} : v));
+      }
+    } catch (err) { console.error("Error updating payment status:", err); }
   };
 
   // Auth Functions
@@ -227,7 +291,7 @@ export default function App() {
     if (error) setAuthError(error.message);
   };
 
-  // PDF Export Function fixed with Landscape and High-Res!
+  // PDF Export Function
   const handleDownloadPDF = async () => {
     const input = document.getElementById('pdf-content');
     if (!input) {
@@ -235,7 +299,6 @@ export default function App() {
       return;
     }
     
-    // إزالة الشفافية مؤقتا لتجنب بهتان الكتابة
     const originalCards = Array.from(document.querySelectorAll('.glass-container, .stat-card'));
     originalCards.forEach(el => {
       el.style.backdropFilter = 'none';
@@ -252,7 +315,7 @@ export default function App() {
     try {
       const imgData = await htmlToImage.toJpeg(input, { 
         quality: 0.8,
-        pixelRatio: 2, // جودة نقية وبدون تجاوز قدرة المتصفح
+        pixelRatio: 2, 
         backgroundColor: theme === 'dark' ? '#0f172a' : '#ffffff' 
       });
       
@@ -270,7 +333,6 @@ export default function App() {
       console.error("Error generating PDF:", err);
       Swal.fire('خطأ!', 'تفاصيل الخطأ: ' + (err?.message || 'مجهول'), 'error');
     } finally {
-      // إرجاع التصميم إلى حالته الأصلية
       originalCards.forEach(el => {
         el.style.backdropFilter = '';
         el.style.background = '';
@@ -278,7 +340,7 @@ export default function App() {
     }
   };
 
-  // Filtered Data
+  // Search Filtered Data
   const filteredAchats = achats.filter(item => item.nom.toLowerCase().includes(searchQuery.toLowerCase()));
   const filteredVentes = ventes.filter(item => 
     item.nom.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -303,7 +365,6 @@ export default function App() {
     achats.forEach(a => {
       const d = new Date(a.date);
       const mIdx = last6Months.findIndex(lm => lm.index === d.getMonth());
-      // Ignore stock_add with 0 price in chart expenses
       if (mIdx !== -1 && a.prix > 0) mAchats[mIdx] += Math.abs(a.quantite * a.prix);
     });
 
@@ -447,6 +508,26 @@ export default function App() {
       <main>
         {activeTab === 'dashboard' && (
           <div className="animate-enter">
+            {/* Analytics Filter Box */}
+            <div className="glass-container" data-html2canvas-ignore="true" style={{marginBottom: '20px', display: 'flex', flexWrap: 'wrap', gap: '15px', alignItems: 'center', justifyContent: 'space-between'}}>
+              <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                <Calendar color="var(--primary)" />
+                <h3 style={{margin: 0, fontSize: '1.2rem', fontWeight: 600}}>إحصائيات المبيعات ({dashboardFilter === 'all' ? 'لكل الأوقات' : dashboardFilter === 'year' ? 'لهذا العام' : dashboardFilter === 'month' ? 'لهذا الشهر' : dashboardFilter === 'week' ? 'لهذا الأسبوع' : 'لليوم'})</h3>
+              </div>
+              <select 
+                className="form-control" 
+                style={{maxWidth: '200px', margin: 0}}
+                value={dashboardFilter}
+                onChange={e => setDashboardFilter(e.target.value)}
+              >
+                <option value="all">كل الأوقات</option>
+                <option value="year">هذا العام</option>
+                <option value="month">هذا الشهر</option>
+                <option value="week">هذا الأسبوع</option>
+                <option value="today">اليوم</option>
+              </select>
+            </div>
+
             <div className="stats-grid">
               <div className="stat-card revenue">
                 <div className="stat-icon"><TrendingDown style={{transform: "scaleY(-1)"}} /></div>
@@ -465,15 +546,38 @@ export default function App() {
                 </div>
                 <div className="stat-label">الصافي (الربح)</div>
               </div>
+              
+              {/* Product Excellence Advanced Stats */}
+              <div className="stat-card" style={{background: 'rgba(56, 189, 248, 0.1)', borderColor: 'rgba(56, 189, 248, 0.2)'}}>
+                <div className="stat-icon" style={{color: '#38bdf8'}}><Award /></div>
+                <div className="stat-value" style={{color: '#38bdf8', fontSize: '1.2rem'}}>{bestSellingStats.bestQte ? bestSellingStats.bestQte.nom : 'لا توجد مبيعات'}</div>
+                <div className="stat-label">الأكثر مبيعاً ({bestSellingStats.bestQte ? bestSellingStats.bestQte.qte + ' قطعة' : '0'})</div>
+              </div>
+              <div className="stat-card" style={{background: 'rgba(168, 85, 247, 0.1)', borderColor: 'rgba(168, 85, 247, 0.2)'}}>
+                <div className="stat-icon" style={{color: '#a855f7'}}><TrendingDown style={{transform: "scaleY(-1)"}} /></div>
+                <div className="stat-value" style={{color: '#a855f7', fontSize: '1.2rem'}}>{bestSellingStats.bestRev ? bestSellingStats.bestRev.nom : 'لا توجد إيرادات'}</div>
+                <div className="stat-label">الأكثر إيراداً ({bestSellingStats.bestRev ? bestSellingStats.bestRev.revenue.toLocaleString() + ' DA' : '0'})</div>
+              </div>
+              
               <div className="stat-card stock">
                 <div className="stat-icon"><Package /></div>
                 <div className="stat-value">{totalStock.toLocaleString()}</div>
-                <div className="stat-label">الكمية في المخزون</div>
+                <div className="stat-label">الكمية الإجمالية للمخزون</div>
+              </div>
+              <div className="stat-card" style={{background: 'rgba(239, 68, 68, 0.05)', borderColor: 'var(--danger)'}}>
+                <div className="stat-icon" style={{color: 'var(--danger)'}}><ShoppingCart /></div>
+                <div className="stat-value" style={{color: 'var(--danger)'}}>{unPaidAchats.toLocaleString()} DA</div>
+                <div className="stat-label">الديون عليّ (غير مدفوعة)</div>
+              </div>
+              <div className="stat-card" style={{background: 'rgba(16, 185, 129, 0.05)', borderColor: 'var(--success)'}}>
+                <div className="stat-icon" style={{color: 'var(--success)'}}><TrendingDown style={{transform: "scaleY(-1)"}} /></div>
+                <div className="stat-value" style={{color: 'var(--success)'}}>{unPaidVentes.toLocaleString()} DA</div>
+                <div className="stat-label">الديون عند الزبائن (غير محصلة)</div>
               </div>
             </div>
 
             <div className="glass-container">
-              <div className="section-title" style={{marginBottom: "20px"}}>رسم بياني للأرباح (آخر 6 أشهر)</div>
+              <div className="section-title" style={{marginBottom: "20px"}}>رسم بياني للإيرادات (آخر 6 أشهر - لكل الأوقات)</div>
               <div style={{ height: "300px", width: "100%" }}>
                 <Line 
                   data={chartData} 
@@ -525,6 +629,7 @@ export default function App() {
                     <th>الكمية</th>
                     <th>السعر (للوحدة)</th>
                     <th>الإجمالي</th>
+                    <th>حالة الدفع</th>
                     <th>التاريخ</th>
                     <th data-html2canvas-ignore="true">حذف</th>
                   </tr>
@@ -540,6 +645,13 @@ export default function App() {
                       <td>{item.quantite}</td>
                       <td>{item.prix.toLocaleString()} DA</td>
                       <td><span className={activeTab === 'achats' ? "badge badge-danger" : "badge badge-success"}>{(item.prix * item.quantite).toLocaleString()} DA</span></td>
+                      <td>
+                        {item.prix === 0 ? '-' : (
+                          <button onClick={() => togglePaiement(item, activeTab === 'achats' ? 'achat' : 'vente')} className={`badge ${item.statut_paiement === 'non_payé' ? 'badge-danger' : 'badge-success'}`} style={{cursor: 'pointer', border: 'none'}}>
+                            {item.statut_paiement === 'non_payé' ? 'غير مدفوع' : 'مدفوع'}
+                          </button>
+                        )}
+                      </td>
                       <td>{new Date(item.date).toLocaleDateString('ar-DZ')}</td>
                       <td data-html2canvas-ignore="true">
                         <button onClick={() => deleteItem(item.id, activeTab === 'achats' ? 'achat' : 'vente')} className="icon-btn" style={{width: "35px", height: "35px", background: "rgba(239, 68, 68, 0.1)", color: "var(--danger)", border: "none"}}>
@@ -558,7 +670,7 @@ export default function App() {
         {activeTab === 'stock' && (
           <div className="glass-container animate-enter">
             <div className="section-header" data-html2canvas-ignore="true">
-              <div className="section-title">المخزون الحالي</div>
+              <div className="section-title">المخزون الحالي الكامل</div>
               <div className="search-bar">
                 <Search size={20} color="var(--text-muted)" />
                 <input 
@@ -636,6 +748,11 @@ export default function App() {
         )}
       </main>
 
+      {/* Product Autocomplete List */}
+      <datalist id="stock-products">
+        {stock.map((item, idx) => <option key={idx} value={item.nom} />)}
+      </datalist>
+
       {/* Modal */}
       {isModalOpen && (
         <div className="modal-overlay" onClick={() => !isSubmitting && setIsModalOpen(false)}>
@@ -679,6 +796,7 @@ export default function App() {
                 <label>{(modalType === 'achat' || modalType === 'stock_add') ? 'اسم السلعة / المنتج' : 'المنتج المباع'}</label>
                 <input 
                   type="text" 
+                  list="stock-products"
                   className="form-control" 
                   required
                   disabled={isSubmitting}
@@ -702,19 +820,33 @@ export default function App() {
               </div>
               
               {modalType !== 'stock_add' && (
-                <div className="form-group">
-                  <label>السعر (للوحدة بالدينار)</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    className="form-control" 
-                    required={modalType !== 'stock_add'}
-                    disabled={isSubmitting}
-                    placeholder="0"
-                    value={formData.prix}
-                    onChange={e => setFormData({...formData, prix: e.target.value})}
-                  />
-                </div>
+                <>
+                  <div className="form-group">
+                    <label>السعر (للوحدة بالدينار)</label>
+                    <input 
+                      type="number" 
+                      step="0.01"
+                      className="form-control" 
+                      required
+                      disabled={isSubmitting}
+                      placeholder="0"
+                      value={formData.prix}
+                      onChange={e => setFormData({...formData, prix: e.target.value})}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>حالة الدفع</label>
+                    <select 
+                      className="form-control" 
+                      value={formData.statut_paiement} 
+                      onChange={e => setFormData({...formData, statut_paiement: e.target.value})}
+                      disabled={isSubmitting}
+                    >
+                      <option value="payé">مدفوع (Payé)</option>
+                      <option value="non_payé">الكريدي - غير مدفوع (Non Payé)</option>
+                    </select>
+                  </div>
+                </>
               )}
 
               <div className="form-group">
