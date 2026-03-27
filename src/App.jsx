@@ -251,28 +251,25 @@ export default function App() {
 
     try {
       const canvas = await html2canvas(input, { 
-        scale: 4, // جودة أعلى بكثير للفلاتر والنصوص
+        scale: 2, // خفض الجودة قليلاً لتجنب انهيار المتصفح (Canvas limit)
         useCORS: true, 
         logging: false,
         backgroundColor: theme === 'dark' ? '#0f172a' : '#ffffff' 
       });
-      // استخراج الصورة بصيغة JPEG لتقليل الحجم إلى أقل من 2 ميغابايت للحفاظ على المساحة
-      const imgData = canvas.toDataURL('image/jpeg', 0.7);
+      const imgData = canvas.toDataURL('image/jpeg', 0.8);
       
-      // 'l' يعني Landscape حتى تظهر الجداول بالعرض بشكل واضح
-      const pdf = new jsPDF('l', 'mm', 'a4'); 
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
       
-      // إضافة هامش صغير للحفاظ على التنسيق
       const margin = 10;
       pdf.addImage(imgData, 'JPEG', margin, margin, pdfWidth - (margin*2), pdfHeight - (margin*2));
       pdf.save(`Rapport_Hsabi_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
       Swal.close();
-      Swal.fire('تم بنجاح!', 'تم حفظ التقرير كـ PDF بجودة عالية', 'success');
+      Swal.fire('تم بنجاح!', 'تم حفظ التقرير كـ PDF', 'success');
     } catch (err) {
       console.error("Error generating PDF:", err);
-      Swal.fire('خطأ!', 'حدث خطأ أثناء تحميل الملف', 'error');
+      Swal.fire('خطأ!', 'تفاصيل الخطأ: ' + (err?.message || 'مجهول'), 'error');
     } finally {
       // إرجاع التصميم إلى حالته الأصلية
       originalCards.forEach(el => {
