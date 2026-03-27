@@ -20,6 +20,7 @@ import { Line } from 'react-chartjs-2';
 import { supabase } from './supabaseClient';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import Swal from 'sweetalert2';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler
@@ -157,7 +158,7 @@ export default function App() {
         else setVentes([data[0], ...ventes]);
       } else {
         console.error("Supabase Error:", error);
-        alert("حدث خطأ أثناء الحفظ! " + (error?.message || ""));
+        Swal.fire('خطأ!', 'حدث خطأ أثناء الحفظ: ' + (error?.message || ''), 'error');
       }
     } catch (err) {
       console.error("Error saving data:", err);
@@ -169,8 +170,17 @@ export default function App() {
   };
 
   const deleteItem = async (id, type) => {
-    const confirmDelete = window.confirm("هل أنت متأكد من حذف هذه العملية؟");
-    if (!confirmDelete) return;
+    const result = await Swal.fire({
+      title: 'هل أنت متأكد؟',
+      text: "لن تتمكن من استرجاع هذه البيانات!",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: 'نعم، احذف',
+      cancelButtonText: 'إلغاء'
+    });
+    if (!result.isConfirmed) return;
     
     const table = type === 'achat' ? 'achats' : 'ventes';
     try {
@@ -197,7 +207,7 @@ export default function App() {
       } else {
         result = await supabase.auth.signUp({ email: authEmail, password: authPassword });
         if(result.data?.user && !result.data?.session) {
-          alert("تم إنشاء حسابك، يرجى تأكيد بريدك الإلكتروني إذا كان مطلوباً أو قم بتسجيل الدخول مباشرة.");
+          Swal.fire('تم بنجاح!', 'تم إنشاء حسابك، يرجى تأكيد بريدك الإلكتروني إذا كان مطلوباً أو قم بتسجيل الدخول مباشرة.', 'success');
         }
       }
       if (result.error) throw result.error;
@@ -229,7 +239,7 @@ export default function App() {
       })
       .catch((err) => {
         console.error("Error generating PDF", err);
-        alert("حدث خطأ أثناء تحميل PDF");
+        Swal.fire('خطأ!', 'حدث خطأ أثناء تحميل الملف', 'error');
       });
   };
 
