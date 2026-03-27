@@ -227,7 +227,7 @@ export default function App() {
     if (error) setAuthError(error.message);
   };
 
-  // PDF Export Function fixed!
+  // PDF Export Function fixed with Landscape and High-Res!
   const handleDownloadPDF = async () => {
     const input = document.getElementById('pdf-content');
     if (!input) {
@@ -235,31 +235,49 @@ export default function App() {
       return;
     }
     
+    // إزالة الشفافية مؤقتا لتجنب بهتان الكتابة
+    const originalCards = Array.from(document.querySelectorAll('.glass-container, .stat-card'));
+    originalCards.forEach(el => {
+      el.style.backdropFilter = 'none';
+      el.style.background = theme === 'dark' ? '#1e293b' : '#ffffff';
+    });
+    
     Swal.fire({
       title: 'جاري تحضير الملف...',
-      text: 'يرجى الانتظار قليلا.',
+      text: 'يرجى الانتظار للحصول على جودة عالية...',
       allowOutsideClick: false,
       didOpen: () => { Swal.showLoading(); }
     });
 
     try {
       const canvas = await html2canvas(input, { 
-        scale: 2, 
+        scale: 4, // جودة أعلى بكثير للفلاتر والنصوص
         useCORS: true, 
+        logging: false,
         backgroundColor: theme === 'dark' ? '#0f172a' : '#f8fafc' 
       });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4'); 
+      const imgData = canvas.toDataURL('image/png', 1.0);
+      
+      // 'l' يعني Landscape حتى تظهر الجداول بالعرض بشكل واضح
+      const pdf = new jsPDF('l', 'mm', 'a4'); 
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
       
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      // إضافة هامش صغير للحفاظ على التنسيق
+      const margin = 10;
+      pdf.addImage(imgData, 'PNG', margin, margin, pdfWidth - (margin*2), pdfHeight - (margin*2));
       pdf.save(`Rapport_Hsabi_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
       Swal.close();
-      Swal.fire('تم بنجاح!', 'تم حفظ التقرير كـ PDF', 'success');
+      Swal.fire('تم بنجاح!', 'تم حفظ التقرير كـ PDF بجودة عالية', 'success');
     } catch (err) {
       console.error("Error generating PDF:", err);
       Swal.fire('خطأ!', 'حدث خطأ أثناء تحميل الملف', 'error');
+    } finally {
+      // إرجاع التصميم إلى حالته الأصلية
+      originalCards.forEach(el => {
+        el.style.backdropFilter = '';
+        el.style.background = '';
+      });
     }
   };
 
