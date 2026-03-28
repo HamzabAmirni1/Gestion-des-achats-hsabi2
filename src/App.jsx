@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   LayoutDashboard, ShoppingCart, TrendingDown, Package, 
-  Download, Moon, Sun, RefreshCw, LogOut, Send, X, Plus
+  Download, Moon, Sun, RefreshCw, LogOut, Send, X, Plus, FileText, Printer
 } from 'lucide-react';
 import { format } from 'date-fns';
 import {
@@ -72,6 +72,24 @@ export default function App() {
      }, 0);
   }, [ventes, products]);
 
+  const generateInvoice = (v) => {
+    const doc = new jsPDF();
+    doc.setFontSize(22); doc.text('FACTURE - BRASTI platform', 20, 30);
+    doc.setFontSize(12); doc.text(`Date: ${v.date || format(new Date(), 'dd/MM/yyyy')}`, 20, 45);
+    doc.text(`ID Facture: ${v.id.slice(0,8)}`, 20, 52);
+    doc.setFontSize(14); doc.text('INFORMATIONS CLIENT:', 20, 70);
+    doc.setFontSize(12); doc.text(`Nom: ${v.client_nom || 'Client Anonyme'}`, 20, 80);
+    doc.text(`Tél: ${v.client_tel || '-'}`, 20, 87);
+    doc.line(20, 100, 190, 100);
+    doc.text('PRODUIT', 20, 110); doc.text('QTÉ', 100, 110); doc.text('PRIX UN.', 130, 110); doc.text('TOTAL', 165, 110);
+    doc.line(20, 115, 190, 115);
+    doc.text(v.nom, 20, 125); doc.text(v.quantite.toString(), 100, 125); doc.text(`${v.prix} DA`, 130, 125); doc.text(`${v.prix * v.quantite} DA`, 165, 125);
+    doc.setFontSize(16); doc.text(`NET À PAYER: ${v.prix * v.quantite} DA`, 120, 150);
+    doc.setFontSize(10); doc.text('État: ' + (v.est_paye ? 'PAYÉ CASH' : 'À PAYER (CRÉDIT)'), 20, 150);
+    doc.text('Merci pour votre confiance !', 20, 200);
+    doc.save(`Facture_${v.client_nom || 'Client'}_${v.id.slice(0,5)}.pdf`);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -97,7 +115,7 @@ export default function App() {
       await fetchData();
       setIsModalOpen(false);
       Swal.fire({ icon: 'success', title: 'Enregistré !', timer: 1000, showConfirmButton: false });
-    } catch (err) { Swal.fire('Erreur', 'Vérifiez les colonnes DB (client_tel, est_paye)', 'error'); } finally { setIsSubmitting(false); }
+    } catch (err) { Swal.fire('Erreur', 'Contactez le support (Table/Schema error)', 'error'); } finally { setIsSubmitting(false); }
   };
 
   const handleQuickVenteForClient = (v) => {
@@ -117,7 +135,7 @@ export default function App() {
         const stats = `Stats: Sales=${totalVentes}DA, Profit=${beneficeReel}DA.`;
         const res = await fetch(`https://luminai.my.id/`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content, prompt: `${stats} Répond court en français.` })
+          body: JSON.stringify({ content, prompt: `${stats} Répond court.` })
         });
         const d = await res.json();
         const botMsg = { user_id: session.user.id, sender: 'admin', content: d.result || d.response || "Compris.", is_bot: true };
@@ -128,18 +146,7 @@ export default function App() {
   };
 
   if (!session) return (
-    <div className="auth-page">
-      <div className="auth-card-premium animate-enter">
-        <h1 className="auth-title">Brasti Business</h1>
-        <form onSubmit={async (e)=>{e.preventDefault(); setAuthLoading(true); let r = authMode==='login' ? await supabase.auth.signInWithPassword({email:authEmail, password:authPassword}) : await supabase.auth.signUp({email:authEmail, password:authPassword}); if(r.error) setAuthError(r.error.message); setAuthLoading(false);}}>
-           <div className="input-group"><label>Email</label><input type="email" required onChange={e=>setAuthEmail(e.target.value)} /></div>
-           <div className="input-group"><label>Mot de passe</label><input type="password" required onChange={e=>setAuthPassword(e.target.value)} /></div>
-           {authError && <div style={{color:'red'}}>{authError}</div>}
-           <button className="btn-auth-submit" disabled={authLoading}>Connexion</button>
-           <button type="button" className="auth-mode-switch" onClick={()=>setAuthMode(authMode==='login'?'reg':'login')}>Inscription</button>
-        </form>
-      </div>
-    </div>
+    <div className="auth-page"><div className="auth-card-premium animate-enter"><h1 className="auth-title">Brasti</h1><button onClick={()=>supabase.auth.signInWithOAuth({provider:'google'})} className="btn-google-auth">Gmail Account</button></div></div>
   );
 
   return (
@@ -163,12 +170,11 @@ export default function App() {
         {activeTab==='dashboard' && (
           <div className="animate-enter">
             <div className="stats-grid">
-               <div className="stat-card" style={{borderLeft:'5px solid #10b981'}}><div className="stat-value">{beneficeReel.toFixed(0)} DA</div><div className="stat-label">Bénéfice Net</div></div>
-               <div className="stat-card" style={{borderLeft:'5px solid #ef4444'}}><div className="stat-value">{totalDettes} DA</div><div className="stat-label">Dettes</div></div>
+               <div className="stat-card" style={{borderLeft:'5px solid #10b981'}}><div className="stat-value">{beneficeReel.toFixed(0)} DA</div><div className="stat-label">Profit</div></div>
+               <div className="stat-card" style={{borderLeft:'5px solid #ef4444'}}><div className="stat-value">{totalDettes} DA</div><div className="stat-label">Non Payés</div></div>
                <div className="stat-card" style={{borderLeft:'5px solid #4f46e5'}}><div className="stat-value">{totalVentes} DA</div><div className="stat-label">Ventes</div></div>
-               <div className="stat-card"><div className="stat-value" style={{fontSize:24}}>{totalAchats} DA</div><div className="stat-label">Achats</div></div>
             </div>
-            <div className="glass-container" style={{height:350}}><Line options={{maintainAspectRatio:false}} data={{labels:['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'], datasets:[{label:'Gain (DA)', data:[0,0,0,0,0,0,beneficeReel], borderColor:'#10b981', fill:true, tension:0.4}]}} /></div>
+            <div className="glass-container" style={{height:300}}><Line options={{maintainAspectRatio:false}} data={{labels:['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'], datasets:[{label:'Gain (DA)', data:[0,0,0,0,0,0,beneficeReel], borderColor:'#10b981', fill:true, tension:0.4}]}} /></div>
           </div>
         )}
         {activeTab==='stock' && (
@@ -182,8 +188,8 @@ export default function App() {
               ))}</div>
           </div>
         )}
-        {activeTab==='ventes' && <div className="glass-container animate-enter"><div className="section-header"><h3>Ventes</h3><button className="btn-primary" onClick={()=>{setModalType('vente'); setIsModalOpen(true)}}>+ Nouvelle</button></div><table className="data-table"><thead><tr><th>Client</th><th>Produit</th><th>Total</th></tr></thead><tbody>{ventes.map(v=><tr key={v.id}><td><button className="badge badge-success" style={{border:'none', cursor:'pointer', display:'block', marginBottom:5}} onClick={()=>handleQuickVenteForClient(v)}>+ {v.client_nom || 'Client'}</button><span className={`badge ${v.est_paye?'badge-success':'badge-danger'}`}>{v.est_paye?'Payé':'Crédit'}</span> <small>{v.client_tel}</small></td><td>{v.nom} ({v.quantite})</td><td>{v.prix*v.quantite} DA</td></tr>)}</tbody></table></div>}
-        {activeTab==='chat' && <div className="glass-container chat-tab animate-enter" style={{padding:0}}><div className="chat-container"><div className="chat-messages">{messages.map((m,i)=><div key={i} className={`message ${m.sender} ${m.is_bot?'bot':''}`}>{m.content}</div>)}<div ref={chatEndRef}/></div><div className="chat-input-area"><input className="form-control" value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSendMessage()} placeholder="Analyser ?" /><button className="btn-primary" onClick={handleSendMessage}><Send size={18}/></button></div></div></div>}
+        {activeTab==='ventes' && <div className="glass-container animate-enter"><div className="section-header"><h3>Historique</h3><button className="btn-primary" onClick={()=>{setModalType('vente'); setIsModalOpen(true)}}>+ Nouvelle</button></div><table className="data-table"><thead><tr><th>Client (Revendre)</th><th>Produit</th><th>Total</th><th>Action</th></tr></thead><tbody>{ventes.map(v=><tr key={v.id} onClick={()=>handleQuickVenteForClient(v)} style={{cursor:'pointer'}} title="Cliquer pour re-vendre à ce client"><td><span className={`badge ${v.est_paye?'badge-success':'badge-danger'}`} style={{marginBottom:5, display:'inline-block'}}>{v.est_paye?'Payé':'Crédit'}</span><br/><b>{v.client_nom || 'Client'}</b><br/><small>{v.client_tel}</small></td><td>{v.nom} ({v.quantite})</td><td>{v.prix*v.quantite} DA</td><td onClick={e=>e.stopPropagation()}><button className="icon-btn" onClick={()=>generateInvoice(v)} title="Télécharger Facture PDF"><Printer size={18}/></button></td></tr>)}</tbody></table></div>}
+        {activeTab==='chat' && <div className="glass-container chat-tab animate-enter" style={{padding:0}}><div className="chat-container"><div className="chat-messages">{messages.map((m,i)=><div key={i} className={`message ${m.sender} ${m.is_bot?'bot':''}`}>{m.content}</div>)}<div ref={chatEndRef}/></div><div className="chat-input-area"><input className="form-control" value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSendMessage()} placeholder="Taper ici..." /><button className="btn-primary" onClick={handleSendMessage}><Send size={18}/></button></div></div></div>}
       </main>
       {isModalOpen && (
         <div className="modal-overlay" onClick={()=>setIsModalOpen(false)}>
@@ -192,15 +198,11 @@ export default function App() {
               <form onSubmit={handleSubmit}>
                  <div className="form-group"><label>Désignation</label><input className="form-control" value={formData.nom} required onChange={e=>setFormData({...formData, nom:e.target.value})} /></div>
                  {modalType === 'vente' && (
-                    <>
                     <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
                        <div className="form-group"><label>Nom Client</label><input className="form-control" value={formData.client_nom} placeholder="Nom" onChange={e=>setFormData({...formData, client_nom:e.target.value})} /></div>
-                       <div className="form-group"><label>Téléphone</label><input className="form-control" value={formData.client_tel} placeholder="06..." onChange={e=>setFormData({...formData, client_tel:e.target.value})} /></div>
+                       <div className="form-group"><label>Téléphone</label><input className="form-control" value={formData.client_tel} placeholder="06.." onChange={e=>setFormData({...formData, client_tel:e.target.value})} /></div>
+                       <div className="form-group" style={{gridColumn:'span 2', display:'flex', alignItems:'center', gap:10}}><label style={{margin:0}}>Payé?</label><input type="checkbox" checked={formData.est_paye} onChange={e=>setFormData({...formData, est_paye:e.target.checked})} style={{width:20, height:20}} /></div>
                     </div>
-                    <div className="form-group" style={{display:'flex', alignItems:'center', gap:10}}>
-                        <label style={{margin:0}}>Payé?</label><input type="checkbox" checked={formData.est_paye} onChange={e=>setFormData({...formData, est_paye:e.target.checked})} style={{width:20, height:20}} />
-                    </div>
-                    </>
                  )}
                  {modalType !== 'product' && (
                     <div className="form-group" style={{background:'rgba(255,255,0,0.05)', padding:8}}><label>Lier au Stock</label><select className="form-control" value={formData.product_id} onChange={e=>{const p=products.find(x=>x.id===e.target.value); if(p) setFormData({...formData, product_id:p.id, nom:p.nom, prix:p.prix_unitaire*1.2}); else setFormData({...formData, product_id:e.target.value})}}><option value="">--- Sélectionner ---</option>{products.map(p=><option key={p.id} value={p.id}>{p.nom} (Stock: {p.stock_qty})</option>)}</select></div>
