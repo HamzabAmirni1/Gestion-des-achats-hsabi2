@@ -77,6 +77,99 @@ export default function App() {
     return s + (v.prix - (p ? p.prix_unitaire : 0)) * v.quantite;
   }, 0), [ventes, products]);
 
+  const topProducts = useMemo(() => {
+    const map = {};
+    ventes.forEach(v => {
+      if (!map[v.nom]) map[v.nom] = { nom: v.nom, total: 0, qty: 0 };
+      map[v.nom].total += v.prix * v.quantite;
+      map[v.nom].qty   += v.quantite;
+    });
+    return Object.values(map).sort((a, b) => b.total - a.total);
+  }, [ventes]);
+
+  const statsBy = (period) => {
+    const now = new Date();
+    const filtered = ventes.filter(v => {
+      if (!v.date) return false;
+      const d = new Date(v.date);
+      if (period === 'week') { const diff = (now - d) / 86400000; return diff <= 7; }
+      if (period === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      if (period === 'year')  return d.getFullYear() === now.getFullYear();
+      return true;
+    });
+    const ca = filtered.reduce((s, v) => s + v.prix * v.quantite, 0);
+    const ben = filtered.reduce((s, v) => {
+      const p = products.find(p => p.id === v.product_id);
+      return s + (v.prix - (p ? p.prix_unitaire : 0)) * v.quantite;
+    }, 0);
+    return { ca, ben, nb: filtered.length };
+  };
+
+  /* ── Full Report PDF ─────────────────────── */
+  const generateFullReport = () => {
+    const doc = new jsPDF();
+    const W = doc.internal.pageSize.getWidth();
+    const today = format(new Date(), 'dd/MM/yyyy');
+    const week  = statsBy('week');
+    const month = statsBy('month');
+    const year  = statsBy('year');
+
+    // Header
+    doc.setFillColor(79, 70, 229); doc.rect(0, 0, W, 40, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor(255,255,255);
+    doc.text('BRASTI — Rapport Complet', 20, 22);
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    doc.text(`Généré le ${today}`, 20, 32);
+
+    let y = 52;
+    const section = (title) => {
+      doc.setFillColor(248,250,252); doc.rect(15, y-6, W-30, 10, 'F');
+      doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(79,70,229);
+      doc.text(title, 18, y); y += 10;
+      doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(30,41,59);
+    };
+    const row = (label, value, color) => {
+      doc.setTextColor(100,116,139); doc.text(label, 20, y);
+      doc.setTextColor(color || 30); doc.setFont('helvetica','bold');
+      doc.text(String(value), W - 20, y, { align:'right' });
+      doc.setFont('helvetica','normal'); doc.setTextColor(30,41,59);
+      doc.setDrawColor(241,245,249); doc.line(20, y+2, W-20, y+2);
+      y += 10;
+    };
+
+    section('📊 Résumé Global');
+    row('Total Ventes', `${totalVentes.toFixed(0)} DA`, [30,41,59]);
+    row('Bénéfice Net', `${benefice.toFixed(0)} DA`, [16,122,87]);
+    row('Non Payés (Crédit)', `${totalDettes.toFixed(0)} DA`, [185,28,28]);
+    row('# Transactions', ventes.length);
+    y += 4;
+
+    section('📅 Statistiques par Période');
+    row('Cette semaine — CA', `${week.ca.toFixed(0)} DA`); row('Cette semaine — Bénéfice', `${week.ben.toFixed(0)} DA`);
+    row('Ce mois — CA', `${month.ca.toFixed(0)} DA`); row('Ce mois — Bénéfice', `${month.ben.toFixed(0)} DA`);
+    row('Cette année — CA', `${year.ca.toFixed(0)} DA`); row('Cette année — Bénéfice', `${year.ben.toFixed(0)} DA`);
+    y += 4;
+
+    section('🏆 Top Produits');
+    topProducts.slice(0,5).forEach((p, i) => row(`${i+1}. ${p.nom} (×${p.qty})`, `${p.total.toFixed(0)} DA`, [79,70,229]));
+    y += 4;
+
+    section('📦 État du Stock');
+    products.forEach(p => row(p.nom, `${p.stock_qty} unités — Coût: ${p.prix_unitaire} DA`));
+    y += 4;
+
+    section('💸 Dernières Ventes');
+    ventes.slice(0,10).forEach(v => row(`${v.date || '—'} · ${v.nom} (${v.client_nom || '?'})`, `${(v.prix*v.quantite).toFixed(0)} DA ${v.est_paye?'✓':'⚠'}`));
+
+    // Footer
+    doc.setFillColor(248,250,252); doc.rect(0, 277, W, 20, 'F');
+    doc.setFontSize(8); doc.setTextColor(100,116,139);
+    doc.text('BRASTI — brasti.netlify.app | Développé par Hamza Amirni', W/2, 286, { align:'center' });
+
+    doc.save(`Rapport_Brasti_${today.replace(/\//g,'-')}.pdf`);
+  };
+
+
   /* ── Invoice PDF ─────────────────────────── */
   const generateInvoice = (v) => {
     const doc = new jsPDF();
@@ -386,13 +479,13 @@ export default function App() {
     <div className="app-wrapper">
       {/* Header */}
       <header className="header">
-        <div className="header-title">🧪 Brasti platform</div>
+        <div className="header-title">
+          <img src="/logo.png" alt="Brasti" style={{ height: 36, width: 36, objectFit: 'contain', marginRight: 10, verticalAlign: 'middle' }} />
+          <span style={{ verticalAlign: 'middle' }}>Brasti platform</span>
+        </div>
         <div className="header-actions">
           <button className="icon-btn" onClick={fetchData} title="Rafraîchir"><RefreshCw size={18} /></button>
-          <button className="icon-btn" onClick={() => {
-            const el = document.getElementById('app-content');
-            htmlToImage.toJpeg(el).then(img => { const doc = new jsPDF('l','mm','a4'); doc.addImage(img,'JPEG',0,0,297,210); doc.save('Rapport.pdf'); });
-          }} title="PDF"><Download size={18} /></button>
+          <button className="icon-btn" style={{ background: 'var(--primary)', color: 'white', border: 'none' }} onClick={generateFullReport} title="Télécharger Rapport PDF"><Download size={18} /></button>
           <button className="icon-btn" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')} title="Thème"><Sun size={18} /></button>
           <button className="icon-btn" onClick={() => supabase.auth.signOut()} title="Déconnexion"><LogOut size={18} /></button>
         </div>
@@ -400,9 +493,9 @@ export default function App() {
 
       {/* Nav */}
       <nav className="nav-tabs">
-        {['dashboard','stock','ventes','chat'].map(tab => (
+        {['dashboard','stock','ventes','stats','chat'].map(tab => (
           <button key={tab} className={`nav-tab${activeTab === tab ? ' active' : ''}`} onClick={() => setActiveTab(tab)}>
-            {tab === 'dashboard' ? 'Dashboard' : tab === 'stock' ? 'Stock' : tab === 'ventes' ? 'Ventes' : 'AI Chat'}
+            {tab === 'dashboard' ? 'Dashboard' : tab === 'stock' ? 'Stock' : tab === 'ventes' ? 'Ventes' : tab === 'stats' ? '📊 Stats' : 'AI Chat'}
           </button>
         ))}
       </nav>
@@ -416,40 +509,49 @@ export default function App() {
             <div className="stats-grid">
               <div className="stat-card" style={{ borderLeft: '5px solid #10b981' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                  <div>
-                    <div className="stat-value" style={{ color: '#10b981' }}>{benefice.toFixed(0)} DA</div>
-                    <div className="stat-label">Bénéfice Net</div>
-                  </div>
+                  <div><div className="stat-value" style={{ color: '#10b981' }}>{benefice.toFixed(0)} DA</div><div className="stat-label">Bénéfice Net</div></div>
                   <TrendingUp color="#10b981" size={30} />
                 </div>
               </div>
               <div className="stat-card" style={{ borderLeft: '5px solid #ef4444' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                  <div>
-                    <div className="stat-value" style={{ color: '#ef4444' }}>{totalDettes.toFixed(0)} DA</div>
-                    <div className="stat-label">Non Payés</div>
-                  </div>
+                  <div><div className="stat-value" style={{ color: '#ef4444' }}>{totalDettes.toFixed(0)} DA</div><div className="stat-label">Non Payés</div></div>
                   <AlertTriangle color="#ef4444" size={30} />
                 </div>
               </div>
               <div className="stat-card" style={{ borderLeft: '5px solid var(--primary)' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                  <div>
-                    <div className="stat-value" style={{ color: 'var(--primary)' }}>{totalVentes.toFixed(0)} DA</div>
-                    <div className="stat-label">Total Ventes</div>
-                  </div>
+                  <div><div className="stat-value" style={{ color: 'var(--primary)' }}>{totalVentes.toFixed(0)} DA</div><div className="stat-label">Total Ventes</div></div>
                   <ShoppingBag color="var(--primary)" size={30} />
                 </div>
               </div>
             </div>
-            <div className="glass-container" style={{ height: 320 }}>
-              <Line
-                options={{ maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }}
+            {/* Chart */}
+            <div className="glass-container" style={{ height: 300 }}>
+              <Line options={{ maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }}
                 data={{ labels: ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'],
                   datasets: [{ label: 'Gain (DA)', data: [0,0,0,0,0,0, benefice], fill: true, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.08)', tension: 0.4, pointBackgroundColor: '#10b981', pointRadius: 5 }]
                 }}
               />
             </div>
+            {/* Top Products */}
+            {topProducts.length > 0 && (
+              <div className="glass-container">
+                <h4 style={{ fontWeight: 800, marginBottom: 16 }}>🏆 Top Produits Vendus</h4>
+                {topProducts.slice(0,5).map((p,i) => (
+                  <div key={p.nom} style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
+                    <div style={{ width:28, height:28, borderRadius:'50%', background: i===0?'#f59e0b':i===1?'#94a3b8':'#c084fc', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:900, fontSize:'0.8rem' }}>{i+1}</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:700 }}>{p.nom}</div>
+                      <div style={{ height:6, borderRadius:4, background:'#f1f5f9', marginTop:4 }}>
+                        <div style={{ height:'100%', borderRadius:4, background:'var(--primary)', width: `${Math.min((p.total/topProducts[0].total)*100,100)}%`, transition:'width 0.5s' }} />
+                      </div>
+                    </div>
+                    <div style={{ fontWeight:800, color:'var(--primary)', fontSize:'0.9rem', minWidth:90, textAlign:'right' }}>{p.total.toFixed(0)} DA</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -507,9 +609,86 @@ export default function App() {
           </div>
         )}
 
+        {/* STATS TAB */}
+        {activeTab === 'stats' && (
+          <div className="animate-enter">
+            {/* Period stats cards */}
+            {[
+              { label: 'Cette Semaine', ...statsBy('week'), color: '#8b5cf6' },
+              { label: 'Ce Mois', ...statsBy('month'), color: '#0ea5e9' },
+              { label: 'Cette Année', ...statsBy('year'), color: '#10b981' },
+            ].map(s => (
+              <div key={s.label} className="glass-container" style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <h4 style={{ fontWeight: 800, fontSize: '1rem' }}>📅 {s.label}</h4>
+                  <span className="badge badge-success">{s.nb} ventes</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div style={{ padding: '12px 16px', background: `${s.color}14`, borderRadius: 14, borderLeft: `4px solid ${s.color}` }}>
+                    <div style={{ fontSize: '1.3rem', fontWeight: 900, color: s.color }}>{s.ca.toFixed(0)} DA</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--muted)', fontWeight: 700, marginTop: 2 }}>CHIFFRE D'AFFAIRES</div>
+                  </div>
+                  <div style={{ padding: '12px 16px', background: '#10b98114', borderRadius: 14, borderLeft: '4px solid #10b981' }}>
+                    <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#10b981' }}>{s.ben.toFixed(0)} DA</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--muted)', fontWeight: 700, marginTop: 2 }}>BÉNÉFICE NET</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {/* Top products */}
+            {topProducts.length > 0 && (
+              <div className="glass-container" style={{ marginBottom: 16 }}>
+                <h4 style={{ fontWeight: 800, marginBottom: 18 }}>🏆 Classement des Produits</h4>
+                {topProducts.map((p, i) => (
+                  <div key={p.nom} style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: ['#f59e0b','#94a3b8','#c084fc','#4f46e5','#10b981'][i] || '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 900, fontSize: '0.85rem', flexShrink: 0 }}>{i + 1}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontWeight: 700 }}>{p.nom}</span>
+                        <span style={{ fontWeight: 800, color: 'var(--primary)' }}>{p.total.toFixed(0)} DA</span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 4, background: '#f1f5f9', marginTop: 6 }}>
+                        <div style={{ height: '100%', borderRadius: 4, background: 'var(--primary)', width: `${Math.min((p.total / (topProducts[0]?.total || 1)) * 100, 100)}%`, transition: 'width 0.6s' }} />
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 3 }}>Quantité vendée: {p.qty}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Developer Profile */}
+            <div className="glass-container" style={{ textAlign: 'center' }}>
+              <div style={{ marginBottom: 8 }}>
+                <img src="/logo.png" alt="logo" style={{ width: 60, height: 60, borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--primary)' }} />
+              </div>
+              <h4 style={{ fontWeight: 900, fontSize: '1.1rem' }}>Hamza Amirni</h4>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', margin: '4px 0 16px' }}>Développeur Full-Stack · Créateur de Brasti</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+                {[
+                  { label: '🌐 Portfolio', url: 'https://hamzaamirni.netlify.app' },
+                  { label: '📸 Instagram', url: 'https://instagram.com/hamza_amirni_01' },
+                  { label: '📺 YouTube', url: 'https://www.youtube.com/@Hamzaamirni01' },
+                  { label: '💬 WhatsApp', url: 'https://whatsapp.com/channel/0029ValXRoHCnA7yKopcrn1p' },
+                  { label: '📘 Facebook', url: 'https://www.facebook.com/profile.php?id=61564527797752' },
+                  { label: '✈️ Telegram', url: 'https://t.me/hamzaamirni' },
+                ].map(link => (
+                  <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" style={{
+                    padding: '8px 16px', borderRadius: 20, background: 'rgba(79,70,229,0.08)',
+                    color: 'var(--primary)', fontWeight: 700, fontSize: '0.82rem', textDecoration: 'none', transition: '0.2s',
+                    border: '1px solid rgba(79,70,229,0.15)'
+                  }}>{link.label}</a>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* AI CHAT */}
         {activeTab === 'chat' && (
           <div className="glass-container animate-enter" style={{ padding: 0, overflow: 'hidden' }}>
+
             <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--card-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>🤖 AI Business Assistant</h3>
