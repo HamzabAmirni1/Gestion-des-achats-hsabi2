@@ -260,22 +260,68 @@ export default function App() {
   };
 
   /* ── AI Chat ─────────────────────────────── */
+  const [isBotTyping, setIsBotTyping] = useState(false);
+
   const handleSend = async () => {
-    if (!chatInput.trim()) return;
-    const content = chatInput; setChatInput('');
-    const { data } = await supabase.from('messages').insert([{ user_id: session.user.id, sender: 'customer', content }]).select();
-    if (data) {
-      setMessages(prev => [...prev, data[0]]);
+    if (!chatInput.trim() || isBotTyping) return;
+    const content = chatInput.trim();
+    setChatInput('');
+
+    // Show user message immediately in UI
+    const userMsg = { id: Date.now(), sender: 'customer', content };
+    setMessages(prev => [...prev, userMsg]);
+
+    // Save to DB (optional, don't block UI)
+    supabase.from('messages').insert([{ user_id: session.user.id, sender: 'customer', content }]).then(() => {});
+
+    setIsBotTyping(true);
+    try {
+      // Build context from business data
+      const ctx = `Tu es un assistant commercial pour BRASTI. Données actuelles: Ventes totales=${totalVentes.toFixed(0)}DA, Bénéfice net=${benefice.toFixed(0)}DA, Dettes impayées=${totalDettes.toFixed(0)}DA, Produits en stock: ${products.map(p => `${p.nom}(${p.stock_qty})`).join(', ')}. Réponds en français, de façon courte et utile.`;
+
+      let botContent = null;
+
+      // Try luminai first
       try {
         const res = await fetch('https://luminai.my.id/', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content, prompt: `Ventes=${totalVentes}DA, Bénéfice=${benefice.toFixed(0)}DA. Réponds brièvement en français.` })
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content, prompt: ctx }),
+          signal: AbortSignal.timeout(8000)
         });
-        const d = await res.json();
-        const bot = { user_id: session.user.id, sender: 'admin', content: d.result || d.response || 'Compris.', is_bot: true };
-        const { data: bData } = await supabase.from('messages').insert([bot]).select();
-        if (bData) setMessages(prev => [...prev, bData[0]]);
-      } catch { /* silent */ }
+        if (res.ok) {
+          const d = await res.json();
+          botContent = d.result || d.response || d.message || null;
+        }
+      } catch { /* try fallback */ }
+
+      // Fallback: simple rule-based answers
+      if (!botContent) {
+        const q = content.toLowerCase();
+        if (q.includes('bénéfice') || q.includes('profit') || q.includes('rbh'))
+          botContent = `Votre bénéfice net actuel est de ${benefice.toFixed(0)} DA.`;
+        else if (q.includes('vente') || q.includes('chiffre'))
+          botContent = `Total des ventes : ${totalVentes.toFixed(0)} DA.`;
+        else if (q.includes('dette') || q.includes('credit') || q.includes('npaye'))
+          botContent = `Montant impayé (crédit) : ${totalDettes.toFixed(0)} DA.`;
+        else if (q.includes('stock') || q.includes('produit'))
+          botContent = `Produits en stock : ${products.map(p => `${p.nom} (${p.stock_qty} unités)`).join(', ') || 'Aucun produit'}.`;
+        else
+          botContent = `Je suis votre assistant BRASTI. Ventes: ${totalVentes.toFixed(0)}DA | Bénéfice: ${benefice.toFixed(0)}DA | Dettes: ${totalDettes.toFixed(0)}DA.`;
+      }
+
+      // Show bot response in UI immediately
+      const botMsg = { id: Date.now() + 1, sender: 'admin', content: botContent, is_bot: true };
+      setMessages(prev => [...prev, botMsg]);
+
+      // Try to save bot response to DB (don't fail if column missing)
+      supabase.from('messages').insert([{ user_id: session.user.id, sender: 'admin', content: botContent }]).then(() => {});
+
+    } catch (err) {
+      console.error('Chat error:', err);
+      setMessages(prev => [...prev, { id: Date.now() + 1, sender: 'admin', content: '⚠ Service AI temporairement indisponible.', is_bot: true }]);
+    } finally {
+      setIsBotTyping(false);
     }
   };
 
@@ -464,21 +510,43 @@ export default function App() {
         {/* AI CHAT */}
         {activeTab === 'chat' && (
           <div className="glass-container animate-enter" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--card-border)' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>🤖 AI Business Assistant</h3>
-              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 4 }}>Posez des questions sur vos ventes et votre activité</p>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--card-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>🤖 AI Business Assistant</h3>
+                <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: 3 }}>Posez des questions sur vos ventes et votre activité</p>
+              </div>
+              <button className="btn-primary" style={{ fontSize: '0.78rem', padding: '8px 14px' }} onClick={() => setMessages([])}>Effacer</button>
             </div>
             <div className="chat-container">
               <div className="chat-messages">
                 {messages.length === 0 && (
-                  <div style={{ textAlign: 'center', color: 'var(--muted)', marginTop: 30 }}>
-                    <p>💬 Commencez à poser des questions !</p>
-                    <p style={{ fontSize: '0.85rem', marginTop: 8 }}>Ex: "Quel est mon bénéfice ce mois ?"</p>
+                  <div style={{ textAlign: 'center', color: 'var(--muted)', marginTop: 24 }}>
+                    <div style={{ fontSize: '2rem', marginBottom: 10 }}>🤖</div>
+                    <p style={{ fontWeight: 700, marginBottom: 12 }}>Bonjour ! Comment puis-je vous aider ?</p>
+                    {[
+                      'Quel est mon bénéfice ?',
+                      'Combien de dettes impayées ?',
+                      'Quels produits sont en stock ?',
+                      'Résumé de mes ventes'
+                    ].map(q => (
+                      <div key={q} onClick={() => { setChatInput(q); }} style={{
+                        display: 'inline-block', margin: '4px', padding: '7px 14px',
+                        background: 'rgba(79,70,229,0.08)', borderRadius: 20,
+                        fontSize: '0.82rem', cursor: 'pointer', color: 'var(--primary)', fontWeight: 600
+                      }}>{q}</div>
+                    ))}
                   </div>
                 )}
                 {messages.map((m, i) => (
-                  <div key={i} className={`message ${m.sender}`}>{m.content}</div>
+                  <div key={m.id || i} className={`message ${m.sender}`}>{m.content}</div>
                 ))}
+                {isBotTyping && (
+                  <div className="message admin" style={{ display: 'flex', gap: 5, alignItems: 'center', padding: '14px 18px' }}>
+                    <span style={{ width: 8, height: 8, background: 'var(--muted)', borderRadius: '50%', animation: 'blink 1.2s infinite 0s' }} />
+                    <span style={{ width: 8, height: 8, background: 'var(--muted)', borderRadius: '50%', animation: 'blink 1.2s infinite 0.3s' }} />
+                    <span style={{ width: 8, height: 8, background: 'var(--muted)', borderRadius: '50%', animation: 'blink 1.2s infinite 0.6s' }} />
+                  </div>
+                )}
                 <div ref={chatEndRef} />
               </div>
               <div className="chat-input-area">
@@ -487,14 +555,16 @@ export default function App() {
                   onChange={e => setChatInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleSend()}
                   placeholder="Tapez votre question..."
+                  disabled={isBotTyping}
                 />
-                <button className="btn-primary" style={{ flexShrink: 0, padding: '12px 18px' }} onClick={handleSend}>
+                <button className="btn-primary" style={{ flexShrink: 0, padding: '12px 18px', opacity: isBotTyping ? 0.6 : 1 }} onClick={handleSend} disabled={isBotTyping}>
                   <Send size={18} />
                 </button>
               </div>
             </div>
           </div>
         )}
+
       </main>
 
       {/* MODAL */}
