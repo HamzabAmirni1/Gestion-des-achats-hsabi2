@@ -80,26 +80,144 @@ export default function App() {
   /* ── Invoice PDF ─────────────────────────── */
   const generateInvoice = (v) => {
     const doc = new jsPDF();
-    doc.setFontSize(22); doc.setTextColor(79, 70, 229);
-    doc.text('BRASTI - Facture', 20, 30);
-    doc.setFontSize(11); doc.setTextColor(100, 116, 139);
-    doc.text(`Date: ${v.date || format(new Date(), 'dd/MM/yyyy')}`, 20, 45);
-    doc.setTextColor(30, 41, 59); doc.setFontSize(13);
-    doc.text(`Client: ${v.client_nom || 'Client Anonyme'}`, 20, 60);
-    doc.text(`Tél: ${v.client_tel || '-'}`, 20, 70);
-    doc.setDrawColor(229, 231, 235); doc.line(20, 80, 190, 80);
-    doc.text(`Article: ${v.nom}`, 20, 92);
-    doc.text(`Quantité: ${v.quantite}`, 20, 102);
-    doc.text(`Prix unitaire: ${v.prix} DA`, 20, 112);
-    doc.setFontSize(16); doc.setFont('helvetica', 'bold');
-    doc.text(`TOTAL: ${v.prix * v.quantite} DA`, 20, 130);
-    doc.setFontSize(11); doc.setFont('helvetica', 'normal');
-    doc.setTextColor(v.est_paye ? 21 : 185, v.est_paye ? 128 : 29, v.est_paye ? 61 : 28);
-    doc.text(v.est_paye ? '✓ Payé' : '⚠ Non payé (Crédit)', 20, 148);
+    const pageW = doc.internal.pageSize.getWidth();
+    const invoiceDate = v.date || format(new Date(), 'dd/MM/yyyy');
+    const invoiceNum  = `INV-${v.id ? v.id.slice(0,8).toUpperCase() : Date.now()}`;
+
+    // ── HEADER BLOCK ─────────────────────────────────────
+    // Purple header bar
+    doc.setFillColor(79, 70, 229);
+    doc.rect(0, 0, pageW, 38, 'F');
+
+    // Company name
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(24);
+    doc.setTextColor(255, 255, 255);
+    doc.text('BRASTI', 20, 22);
+
+    // Subtitle
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Production & Vente — Produits d\'entretien', 20, 30);
+
+    // FACTURE label (right side)
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text('FACTURE', pageW - 20, 20, { align: 'right' });
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(invoiceNum, pageW - 20, 28, { align: 'right' });
+
+    // ── INFO BLOCKS ──────────────────────────────────────
+    doc.setTextColor(30, 41, 59);
+
+    // LEFT: bill to
+    doc.setFontSize(9);
     doc.setTextColor(100, 116, 139);
-    doc.text('Merci pour votre confiance !', 20, 200);
-    doc.save(`Facture_${v.client_nom || 'client'}_${v.id.slice(0, 6)}.pdf`);
+    doc.text('FACTURÉ À :', 20, 52);
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text(v.client_nom || 'Client Anonyme', 20, 61);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    if (v.client_tel) doc.text(`Tél : ${v.client_tel}`, 20, 69);
+
+    // RIGHT: invoice info
+    doc.setFontSize(9);
+    doc.text('N° FACTURE :', pageW - 80, 52);
+    doc.text('DATE :', pageW - 80, 60);
+    doc.text('STATUT :', pageW - 80, 68);
+
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.text(invoiceNum, pageW - 20, 52, { align: 'right' });
+    doc.text(invoiceDate, pageW - 20, 60, { align: 'right' });
+
+    // Payment status badge
+    if (v.est_paye) {
+      doc.setTextColor(21, 128, 61);
+      doc.text('✓ PAYÉ', pageW - 20, 68, { align: 'right' });
+    } else {
+      doc.setTextColor(185, 28, 28);
+      doc.text('⚠ CRÉDIT (non payé)', pageW - 20, 68, { align: 'right' });
+    }
+
+    // ── SEPARATOR ────────────────────────────────────────
+    doc.setDrawColor(229, 231, 235);
+    doc.setLineWidth(0.5);
+    doc.line(20, 78, pageW - 20, 78);
+
+    // ── PRODUCT TABLE HEADER ─────────────────────────────
+    doc.setFillColor(248, 250, 252);
+    doc.rect(20, 82, pageW - 40, 10, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text('ARTICLE', 24, 89);
+    doc.text('QTÉ', 115, 89, { align: 'center' });
+    doc.text('PRIX UNIT.', 145, 89, { align: 'center' });
+    doc.text('TOTAL', pageW - 24, 89, { align: 'right' });
+
+    // ── PRODUCT ROW ──────────────────────────────────────
+    const rowY = 106;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(30, 41, 59);
+    doc.text(v.nom || '—', 24, rowY);
+    doc.text(String(v.quantite), 115, rowY, { align: 'center' });
+    doc.text(`${(+v.prix).toFixed(2)} DA`, 145, rowY, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${(v.prix * v.quantite).toFixed(2)} DA`, pageW - 24, rowY, { align: 'right' });
+
+    // Row separator
+    doc.setDrawColor(229, 231, 235);
+    doc.line(20, 112, pageW - 20, 112);
+
+    // ── TOTAL BLOCK ──────────────────────────────────────
+    doc.setFillColor(79, 70, 229);
+    doc.setDrawColor(79, 70, 229);
+    doc.roundedRect(pageW - 90, 118, 70, 18, 3, 3, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(255, 255, 255);
+    doc.text('TOTAL', pageW - 55, 126, { align: 'center' });
+    doc.text(`${(v.prix * v.quantite).toFixed(2)} DA`, pageW - 55, 132, { align: 'center' });
+
+    // Sub-totals (left)
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Sous-total :  ${(v.prix * v.quantite).toFixed(2)} DA`, 20, 126);
+    doc.text(`TVA :  Hors taxes`, 20, 134);
+
+    // ── NOTES / CONDITIONS ───────────────────────────────
+    doc.setDrawColor(229, 231, 235);
+    doc.line(20, 148, pageW - 20, 148);
+
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Note de paiement :', 20, 156);
+    doc.setTextColor(30, 41, 59);
+    const payNote = v.est_paye
+      ? 'Paiement reçu — Aucun montant dû.'
+      : `Montant restant à régler : ${(v.prix * v.quantite).toFixed(2)} DA`;
+    doc.text(payNote, 20, 163);
+
+    // ── FOOTER ───────────────────────────────────────────
+    doc.setFillColor(248, 250, 252);
+    doc.rect(0, 275, pageW, 22, 'F');
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Merci pour votre confiance ! — BRASTI Production & Vente', pageW / 2, 283, { align: 'center' });
+    doc.text('brasti.netlify.app', pageW / 2, 290, { align: 'center' });
+
+    doc.save(`Facture_${v.client_nom || 'Client'}_${invoiceNum}.pdf`);
   };
+
 
   /* ── Auth submit ─────────────────────────── */
   const handleAuth = async (e) => {
