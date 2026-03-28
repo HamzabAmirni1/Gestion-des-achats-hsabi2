@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Download, Sun, RefreshCw, LogOut, Send, X, Plus, Printer, Mail, Lock, TrendingUp, AlertTriangle, ShoppingBag, Bell, Smartphone } from 'lucide-react';
+import { Download, Sun, RefreshCw, LogOut, Send, X, Plus, Printer, Mail, Lock, TrendingUp, AlertTriangle, ShoppingBag, Bell, Smartphone, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js';
 import { Line } from 'react-chartjs-2';
@@ -377,6 +377,31 @@ export default function App() {
     finally { setSubmit(false); }
   };
 
+  /* ── Delete handle ───────────────────────── */
+  const handleDelete = async (table, id) => {
+    const { isConfirmed } = await Swal.fire({
+      title: 'Êtes-vous sûr ?',
+      text: "Cette action est irréversible !",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#94a3b8',
+      confirmButtonText: 'Oui, supprimer',
+      cancelButtonText: 'Annuler'
+    });
+
+    if (isConfirmed) {
+      try {
+        const { error } = await supabase.from(table).delete().eq('id', id);
+        if (error) throw error;
+        Swal.fire({ icon: 'success', title: 'Supprimé !', timer: 800, showConfirmButton: false });
+        fetchData();
+      } catch (err) {
+        Swal.fire('Erreur', err.message, 'error');
+      }
+    }
+  };
+
   /* ── AI Chat ─────────────────────────────── */
   const [isBotTyping, setIsBotTyping] = useState(false);
 
@@ -625,13 +650,19 @@ export default function App() {
             {products.length === 0 && <p style={{ color: 'var(--muted)', textAlign: 'center', padding: 40 }}>Aucun produit. Ajoutez votre premier produit !</p>}
             <div className="products-grid">
               {products.map(p => (
-                <div key={p.id} className="product-card" onClick={() => openModal('vente', { product_id: p.id, nom: p.nom, prix: +(p.prix_unitaire * 1.2).toFixed(2) })}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <b style={{ fontSize: '1rem' }}>{p.nom}</b>
-                    <span className={`badge ${p.stock_qty > 0 ? 'badge-success' : 'badge-danger'}`}>{p.stock_qty} unités</span>
+                <div key={p.id} className="product-card" style={{ position: 'relative' }}>
+                  <div onClick={() => openModal('vente', { product_id: p.id, nom: p.nom, prix: +(p.prix_unitaire * 1.2).toFixed(2) })}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                      <b style={{ fontSize: '1rem' }}>{p.nom}</b>
+                      <span className={`badge ${p.stock_qty > 0 ? 'badge-success' : 'badge-danger'}`}>{p.stock_qty} unités</span>
+                    </div>
+                    <div style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Coût: <strong style={{ color: 'var(--primary)' }}>{p.prix_unitaire} DA</strong></div>
+                    <div style={{ marginTop: 10, fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>▶ Cliquer pour vendre</div>
                   </div>
-                  <div style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Coût: <strong style={{ color: 'var(--primary)' }}>{p.prix_unitaire} DA</strong></div>
-                  <div style={{ marginTop: 10, fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>▶ Cliquer pour vendre</div>
+                  <button className="icon-btn" onClick={(e) => { e.stopPropagation(); handleDelete('products', p.id); }} 
+                    style={{ position: 'absolute', bottom: 10, right: 10, color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }} title="Supprimer le produit">
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               ))}
             </div>
@@ -661,6 +692,7 @@ export default function App() {
                     <td style={{ display: 'flex', gap: 6 }}>
                       <button className="icon-btn" title="Re-vendre à ce client" onClick={() => openQuickSell(v)}><Plus size={16} /></button>
                       <button className="icon-btn" title="Télécharger Facture PDF" onClick={() => generateInvoice(v)}><Printer size={16} /></button>
+                      <button className="icon-btn" title="Supprimer la vente" onClick={() => handleDelete('ventes', v.id)} style={{ color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }}><Trash2 size={16} /></button>
                     </td>
                   </tr>
                 ))}
