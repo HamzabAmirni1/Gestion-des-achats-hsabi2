@@ -10,7 +10,7 @@ import {
 import { Line } from 'react-chartjs-2';
 import { supabase } from './supabaseClient';
 import * as htmlToImage from 'html-to-image';
-import { jsPDF } from 'jsPDF';
+import { jsPDF } from 'jspdf';
 import Swal from 'sweetalert2';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
@@ -22,8 +22,8 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
-  const [theme, setTheme] = useState('light');
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [theme, setTheme] = useState(localStorage.getItem('brasti-theme') || 'light');
+  const [activeTab, setActiveTab] = useState(localStorage.getItem('brasti-tab') || 'dashboard');
   
   const [achats, setAchats] = useState([]);
   const [ventes, setVentes] = useState([]);
@@ -57,7 +57,11 @@ export default function App() {
   };
 
   useEffect(() => { fetchData(); }, [session]);
-  useEffect(() => { document.documentElement.setAttribute('data-theme', theme); }, [theme]);
+  useEffect(() => { 
+    document.documentElement.setAttribute('data-theme', theme); 
+    localStorage.setItem('brasti-theme', theme);
+  }, [theme]);
+  useEffect(() => { localStorage.setItem('brasti-tab', activeTab); }, [activeTab]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   const totalVentes = useMemo(() => (ventes || []).reduce((a, c) => a + (c.prix * c.quantite), 0), [ventes]);
@@ -75,13 +79,8 @@ export default function App() {
   const generateInvoice = (v) => {
     const doc = new jsPDF();
     doc.setFontSize(22); doc.text('FACTURE BRASTI', 20, 30);
-    doc.setFontSize(12); doc.text(`Client: ${v.client_nom || 'Client'}`, 20, 50);
-    doc.text(`Tél: ${v.client_tel || '-'}`, 20, 58);
-    doc.text(`Article: ${v.nom}`, 20, 70);
-    doc.text(`Quantité: ${v.quantite}`, 20, 78);
-    doc.text(`Prix Unitaire: ${v.prix} DA`, 20, 86);
-    doc.setFontSize(16); doc.text(`TOTAL: ${v.prix * v.quantite} DA`, 20, 105);
-    doc.setFontSize(10); doc.text('Merci pour votre commande.', 20, 200);
+    doc.text(`Client: ${v.client_nom || 'Client'}`, 20, 50);
+    doc.text(`Total: ${v.prix * v.quantite} DA`, 20, 60);
     doc.save(`Facture_${v.client_nom}.pdf`);
   };
 
@@ -100,13 +99,12 @@ export default function App() {
     setIsSubmitting(true);
     try {
       let table = modalType==='product'?'products':(modalType==='achat'?'achats':'ventes');
-      let item = { user_id: session.user.id, nom: formData.nom };
+      let item = { user_id: session.user.id, nom: formData.nom, prix: parseFloat(formData.prix), quantite: parseFloat(formData.quantite) };
       if(modalType === 'product') {
         item.prix_unitaire = parseFloat(formData.prix);
         item.stock_qty = parseFloat(formData.quantite);
+        item.prix = undefined; item.quantite = undefined; 
       } else {
-        item.prix = parseFloat(formData.prix);
-        item.quantite = parseFloat(formData.quantite);
         item.product_id = formData.product_id || null;
         item.date = format(new Date(), 'yyyy-MM-dd');
         if(modalType === 'vente') {
@@ -117,24 +115,21 @@ export default function App() {
       }
       const { error } = await supabase.from(table).insert([item]);
       if(error) throw error;
-      await fetchData();
-      setIsModalOpen(false);
+      fetchData(); setIsModalOpen(false);
       Swal.fire({ icon: 'success', title: 'Succès !', timer: 1000, showConfirmButton: false });
-    } catch (err) { Swal.fire('Erreur', 'Vérifiez la connexion ou colonnes DB', 'error'); } finally { setIsSubmitting(false); }
+    } catch (err) { Swal.fire('Erreur', 'Vérifiez la connexion', 'error'); } finally { setIsSubmitting(false); }
   };
 
   const handleSendMessage = async () => {
     if(!chatInput.trim()) return;
-    const content = chatInput;
-    setChatInput('');
+    const content = chatInput; setChatInput('');
     const { data } = await supabase.from('messages').insert([{ user_id: session.user.id, sender: 'customer', content }]).select();
     if(data) {
       setMessages(p => [...p, data[0]]);
       try {
-        const stats = `Ventes=${totalVentes}DA.`;
         const res = await fetch(`https://luminai.my.id/`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content, prompt: `${stats} Répond court en français.` })
+          body: JSON.stringify({ content, prompt: `Ventes=${totalVentes}DA. Répond court en français.` })
         });
         const d = await res.json();
         const botMsg = { user_id: session.user.id, sender: 'admin', content: d.result || d.response || "Compris.", is_bot: true };
@@ -147,15 +142,15 @@ export default function App() {
   if (!session) return (
     <div className="auth-page">
       <div className="auth-card-premium animate-enter">
-        <h1 className="auth-title">Brasti platform</h1>
+        <h1 className="auth-title">Brasti Business</h1>
         <p style={{marginBottom:30, color:'var(--text-muted)'}}>Manage your production smartly</p>
         <form onSubmit={handleAuth}>
-           <div className="input-group"><label>Email</label><div className="auth-input-container"><Mail size={18}/><input type="email" required value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="votre@email.com" /></div></div>
-           <div className="input-group"><label>Mot de passe</label><div className="auth-input-container"><Lock size={18}/><input type="password" required value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="••••••••" /></div></div>
+           <div className="auth-group"><label>Email</label><div className="auth-input-wrapper"><Mail size={18}/><input type="email" required value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="votre@email.com" /></div></div>
+           <div className="auth-group"><label>Mot de passe</label><div className="auth-input-wrapper"><Lock size={18}/><input type="password" required value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="••••••••" /></div></div>
            {authError && <p style={{color:'red', fontSize:'0.85rem', marginBottom:15}}>{authError}</p>}
            <button className="btn-auth-submit" disabled={authLoading}>{authLoading ? '...' : (authMode==='login'?'Se connecter':'S\'inscrire')}</button>
            <div className="auth-divider"><span>OU</span></div>
-           <button type="button" className="btn-google-auth" onClick={()=>supabase.auth.signInWithOAuth({provider:'google'})}>Utiliser Google Account</button>
+           <button type="button" className="btn-google-auth" onClick={()=>supabase.auth.signInWithOAuth({provider:'google'})}>Sign in with Google</button>
            <button type="button" className="auth-mode-switch" onClick={()=>setAuthMode(authMode==='login'?'reg':'login')}>{authMode==='login'?'Créer un compte':'Connectez-vous'}</button>
         </form>
       </div>
@@ -167,10 +162,10 @@ export default function App() {
       <header className="header">
         <div className="header-title">Brasti platform</div>
         <div className="header-actions">
-           <button className="icon-btn" onClick={fetchData}><RefreshCw size={20}/></button>
-           <button className="icon-btn" onClick={()=>{const input=document.getElementById('app-main-content'); htmlToImage.toJpeg(input).then(it=>{const p=new jsPDF('l','mm','a4'); p.addImage(it,'JPEG',0,0,297,210); p.save('Rapport_Brasti.pdf')})}}><Download size={20}/></button>
-           <button className="icon-btn" onClick={()=>setTheme(theme==='light'?'dark':'light')}><Sun size={20}/></button>
-           <button className="icon-btn" onClick={()=>supabase.auth.signOut()}><LogOut size={20}/></button>
+           <button className="icon-btn" onClick={fetchData} title="Rafraîchir"><RefreshCw size={20}/></button>
+           <button className="icon-btn" onClick={()=>{const input=document.getElementById('app-main-content'); htmlToImage.toJpeg(input).then(it=>{const p=new jsPDF('l','mm','a4'); p.addImage(it,'JPEG',0,0,297,210); p.save('Rapport.pdf')})}} title="PDF Rapport"><Download size={20}/></button>
+           <button className="icon-btn" onClick={()=>setTheme(theme==='light'?'dark':'light')} title="Thème"><Sun size={20}/></button>
+           <button className="icon-btn" onClick={()=>supabase.auth.signOut()} title="Déconnexion"><LogOut size={20}/></button>
         </div>
       </header>
       <nav className="nav-tabs">
@@ -185,9 +180,9 @@ export default function App() {
             <div className="stats-grid">
                <div className="stat-card" style={{borderLeft:'5px solid #10b981'}}><div className="stat-value">{beneficeReel.toFixed(0)} DA</div><div className="stat-label">Bénéfice Net</div></div>
                <div className="stat-card" style={{borderLeft:'5px solid #ef4444'}}><div className="stat-value">{totalDettes} DA</div><div className="stat-label">Dettes</div></div>
-               <div className="stat-card" style={{borderLeft:'5px solid #4f46e5'}}><div className="stat-value">{totalVentes} DA</div><div className="stat-label">Ventes</div></div>
+               <div className="stat-card" style={{borderLeft:'5px solid #4f46e5'}}><div className="stat-value">{totalVentes} DA</div><div className="stat-label">Total Ventes</div></div>
             </div>
-            <div className="glass-container" style={{height:300, display:'flex', alignItems:'center', justifyContent:'center'}}><Line options={{maintainAspectRatio:false}} data={{labels:['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'], datasets:[{label:'Gain (DA)', data:[0,0,0,0,0,0,beneficeReel], borderColor:'#10b981', fill:true, tension:0.4}]}} /></div>
+            <div className="glass-container" style={{height:300}}><Line options={{maintainAspectRatio:false}} data={{labels:['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'], datasets:[{label:'Gain (DA)', data:[0,0,0,0,0,0,beneficeReel], borderColor:'#10b981', fill:true, tension:0.4}]}} /></div>
           </div>
         )}
         {activeTab==='stock' && (
@@ -196,7 +191,7 @@ export default function App() {
             <div className="products-grid">{products.map(p=>(
                 <div key={p.id} className="product-card" onClick={()=>{setFormData({...formData, product_id:p.id, nom:p.nom, prix:p.prix_unitaire*1.2, est_paye:true}); setModalType('vente'); setIsModalOpen(true)}} style={{cursor:'pointer'}}>
                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}><b>{p.nom}</b><span className="badge badge-success">{p.stock_qty} Qté</span></div>
-                   <div style={{marginTop:12, fontSize:'0.9rem', color:'var(--text-muted)'}}>P. Revient: <span style={{color:'var(--primary)', fontWeight:800}}>{p.prix_unitaire} DA</span></div>
+                   <div style={{marginTop:12, fontSize:'0.9rem', color:'var(--text-muted)'}}>Coût: <span style={{color:'var(--primary)', fontWeight:800}}>{p.prix_unitaire} DA</span></div>
                 </div>
               ))}</div>
           </div>
@@ -206,15 +201,15 @@ export default function App() {
       </main>
       {isModalOpen && (
         <div className="modal-overlay" onClick={()=>setIsModalOpen(false)}>
-           <div className="modal-content" onClick={e=>e.stopPropagation()}>
-              <div className="modal-header"><h3>{modalType === 'product' ? 'Produit' : modalType === 'achat' ? 'Achat' : 'Vente'}</h3><button className="modal-close-btn" onClick={()=>setIsModalOpen(false)}><X size={20}/></button></div>
+           <div className="modal-content animate-enter" onClick={e=>e.stopPropagation()}>
+              <div className="modal-header"><h3>{modalType.toUpperCase()}</h3><button className="modal-close-btn" onClick={()=>setIsModalOpen(false)}><X size={20}/></button></div>
               <form onSubmit={handleSubmit}>
                  <div className="form-group"><label>Désignation</label><input className="form-control" value={formData.nom} required onChange={e=>setFormData({...formData, nom:e.target.value})} placeholder="Article.." /></div>
                  {modalType === 'vente' && (
                     <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
                        <div className="form-group"><label>Client</label><input className="form-control" value={formData.client_nom} onChange={e=>setFormData({...formData, client_nom:e.target.value})} placeholder="Nom" /></div>
                        <div className="form-group"><label>Tél</label><input className="form-control" value={formData.client_tel} onChange={e=>setFormData({...formData, client_tel:e.target.value})} placeholder="06.." /></div>
-                       <div className="form-group" style={{gridColumn:'span 2', display:'flex', alignItems:'center', gap:10}}><label style={{margin:0}}>Payé cash?</label><input type="checkbox" checked={formData.est_paye} onChange={e=>setFormData({...formData, est_paye:e.target.checked})} style={{width:22, height:22, cursor:'pointer'}} /></div>
+                       <div className="form-group" style={{gridColumn:'span 2', display:'flex', alignItems:'center', gap:10}}><label style={{margin:0, cursor:'pointer'}}>Payé cash?</label><input type="checkbox" checked={formData.est_paye} onChange={e=>setFormData({...formData, est_paye:e.target.checked})} style={{width:22, height:22, cursor:'pointer'}} /></div>
                     </div>
                  )}
                  {modalType !== 'product' && (
