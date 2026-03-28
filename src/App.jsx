@@ -117,56 +117,82 @@ export default function App() {
     // Header
     doc.setFillColor(79, 70, 229); doc.rect(0, 0, W, 40, 'F');
     doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor(255,255,255);
-    doc.text('BRASTI — Rapport Complet', 20, 22);
+    doc.text('BRASTI - Rapport Complet', 20, 22);
     doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-    doc.text(`Généré le ${today}`, 20, 32);
+    doc.text(`Genere le ${today}`, 20, 32);
 
     let y = 52;
-    const section = (title) => {
-      doc.setFillColor(248,250,252); doc.rect(15, y-6, W-30, 10, 'F');
-      doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(79,70,229);
-      doc.text(title, 18, y); y += 10;
-      doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(30,41,59);
+    const pageH = doc.internal.pageSize.getHeight();
+
+    const checkPage = () => {
+      if (y > pageH - 30) {
+        doc.addPage();
+        doc.setFillColor(79, 70, 229); doc.rect(0, 0, W, 10, 'F');
+        y = 20;
+      }
     };
-    const row = (label, value, color) => {
-      doc.setTextColor(100,116,139); doc.text(label, 20, y);
-      doc.setTextColor(color || 30); doc.setFont('helvetica','bold');
-      doc.text(String(value), W - 20, y, { align:'right' });
-      doc.setFont('helvetica','normal'); doc.setTextColor(30,41,59);
-      doc.setDrawColor(241,245,249); doc.line(20, y+2, W-20, y+2);
+
+    const section = (title) => {
+      checkPage();
+      doc.setFillColor(240, 240, 252); doc.rect(15, y - 6, W - 30, 10, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(79, 70, 229);
+      doc.text(title, 18, y); y += 12;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 41, 59);
+    };
+
+    const row = (label, value, r, g, b) => {
+      checkPage();
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+      doc.setTextColor(100, 116, 139); doc.text(String(label).slice(0, 60), 20, y);
+      if (r !== undefined) doc.setTextColor(r, g, b);
+      else doc.setTextColor(30, 41, 59);
+      doc.setFont('helvetica', 'bold');
+      doc.text(String(value), W - 20, y, { align: 'right' });
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 41, 59);
+      doc.setDrawColor(230, 235, 245); doc.line(20, y + 2, W - 20, y + 2);
       y += 10;
     };
 
-    section('📊 Résumé Global');
-    row('Total Ventes', `${totalVentes.toFixed(0)} DA`, [30,41,59]);
-    row('Bénéfice Net', `${benefice.toFixed(0)} DA`, [16,122,87]);
-    row('Non Payés (Crédit)', `${totalDettes.toFixed(0)} DA`, [185,28,28]);
-    row('# Transactions', ventes.length);
-    y += 4;
+    section('Resume Global');
+    row('Total Ventes', `${totalVentes.toFixed(0)} DA`, 30, 41, 59);
+    row('Benefice Net', `${benefice.toFixed(0)} DA`, 16, 122, 87);
+    row('Non Payes (Credit)', `${totalDettes.toFixed(0)} DA`, 185, 28, 28);
+    row('Nombre de Transactions', ventes.length);
+    y += 6;
 
-    section('📅 Statistiques par Période');
-    row('Cette semaine — CA', `${week.ca.toFixed(0)} DA`); row('Cette semaine — Bénéfice', `${week.ben.toFixed(0)} DA`);
-    row('Ce mois — CA', `${month.ca.toFixed(0)} DA`); row('Ce mois — Bénéfice', `${month.ben.toFixed(0)} DA`);
-    row('Cette année — CA', `${year.ca.toFixed(0)} DA`); row('Cette année — Bénéfice', `${year.ben.toFixed(0)} DA`);
-    y += 4;
+    section('Statistiques par Periode');
+    row('Cette semaine - CA', `${week.ca.toFixed(0)} DA`);
+    row('Cette semaine - Benefice', `${week.ben.toFixed(0)} DA`, 16, 122, 87);
+    row(`Ce mois (${format(new Date(),'MMMM yyyy')}) - CA`, `${month.ca.toFixed(0)} DA`);
+    row(`Ce mois - Benefice`, `${month.ben.toFixed(0)} DA`, 16, 122, 87);
+    row(`Cette annee ${new Date().getFullYear()} - CA`, `${year.ca.toFixed(0)} DA`);
+    row(`Cette annee - Benefice`, `${year.ben.toFixed(0)} DA`, 16, 122, 87);
+    y += 6;
 
-    section('🏆 Top Produits');
-    topProducts.slice(0,5).forEach((p, i) => row(`${i+1}. ${p.nom} (×${p.qty})`, `${p.total.toFixed(0)} DA`, [79,70,229]));
-    y += 4;
+    section('Top Produits Vendus');
+    if (topProducts.length === 0) row('Aucune vente enregistree', '-');
+    topProducts.slice(0, 8).forEach((p, i) => row(`${i + 1}. ${p.nom}  (x${p.qty} unites)`, `${p.total.toFixed(0)} DA`, 79, 70, 229));
+    y += 6;
 
-    section('📦 État du Stock');
-    products.forEach(p => row(p.nom, `${p.stock_qty} unités — Coût: ${p.prix_unitaire} DA`));
-    y += 4;
+    section('Etat du Stock');
+    if (products.length === 0) row('Aucun produit', '-');
+    products.forEach(p => row(`${p.nom}`, `${p.stock_qty} unites  |  Cout: ${p.prix_unitaire} DA`));
+    y += 6;
 
-    section('💸 Dernières Ventes');
-    ventes.slice(0,10).forEach(v => row(`${v.date || '—'} · ${v.nom} (${v.client_nom || '?'})`, `${(v.prix*v.quantite).toFixed(0)} DA ${v.est_paye?'✓':'⚠'}`));
+    section('Dernieres Ventes (10 recentes)');
+    if (ventes.length === 0) row('Aucune vente', '-');
+    ventes.slice(0, 10).forEach(v => {
+      const status = v.est_paye ? 'Paye' : 'Credit';
+      row(`${v.date || '--'} | ${v.nom} | ${v.client_nom || 'Client'}`, `${(v.prix * v.quantite).toFixed(0)} DA [${status}]`);
+    });
 
-    // Footer
-    doc.setFillColor(248,250,252); doc.rect(0, 277, W, 20, 'F');
-    doc.setFontSize(8); doc.setTextColor(100,116,139);
-    doc.text('BRASTI — brasti.netlify.app | Développé par Hamza Amirni', W/2, 286, { align:'center' });
+    // Footer on last page
+    const lastY = doc.internal.pageSize.getHeight() - 15;
+    doc.setFillColor(248, 250, 252); doc.rect(0, lastY - 6, W, 20, 'F');
+    doc.setFontSize(8); doc.setTextColor(100, 116, 139);
+    doc.text('BRASTI - brasti.netlify.app | Developpe par Hamza Amirni', W / 2, lastY, { align: 'center' });
 
-    doc.save(`Rapport_Brasti_${today.replace(/\//g,'-')}.pdf`);
+    doc.save(`Rapport_Brasti_${today.replace(/\//g, '-')}.pdf`);
   };
 
 
