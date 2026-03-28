@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Download, Sun, RefreshCw, LogOut, Send, X, Plus, Printer, Mail, Lock, TrendingUp, AlertTriangle, ShoppingBag } from 'lucide-react';
+import { Download, Sun, RefreshCw, LogOut, Send, X, Plus, Printer, Mail, Lock, TrendingUp, AlertTriangle, ShoppingBag, Bell, Smartphone } from 'lucide-react';
 import { format } from 'date-fns';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js';
 import { Line } from 'react-chartjs-2';
@@ -45,7 +45,38 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  /* ── Theme & Tab persistence ─────────────── */
+  /* ── Push Notification Permission ─────────────── */
+  const [showNotifBanner, setShowNotifBanner] = useState(false);
+  const [deferredPrompt, setDeferredPrompt]   = useState(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+
+  useEffect(() => {
+    // PWA install prompt
+    const handler = (e) => { e.preventDefault(); setDeferredPrompt(e); setShowInstallBanner(true); };
+    window.addEventListener('beforeinstallprompt', handler);
+    // Ask notification permission after 3 seconds if logged in
+    const t = setTimeout(() => {
+      if ('Notification' in window && Notification.permission === 'default') setShowNotifBanner(true);
+    }, 3000);
+    return () => { window.removeEventListener('beforeinstallprompt', handler); clearTimeout(t); };
+  }, []);
+
+  const requestNotifPermission = async () => {
+    setShowNotifBanner(false);
+    if ('Notification' in window) {
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        new Notification('Brasti ✔', { body: 'Notifications activées ! Vous serez alerté des nouveautés.', icon: '/logo.png' });
+      }
+    }
+  };
+
+  const installApp = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    setDeferredPrompt(null); setShowInstallBanner(false);
+  };
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('brasti-theme', theme);
@@ -201,140 +232,108 @@ export default function App() {
     const doc = new jsPDF();
     const pageW = doc.internal.pageSize.getWidth();
     const invoiceDate = v.date || format(new Date(), 'dd/MM/yyyy');
-    const invoiceNum  = `INV-${v.id ? v.id.slice(0,8).toUpperCase() : Date.now()}`;
+    const invoiceNum = `INV-${v.id ? v.id.slice(0, 8).toUpperCase() : Date.now()}`;
 
-    // ── HEADER BLOCK ─────────────────────────────────────
-    // Purple header bar
-    doc.setFillColor(79, 70, 229);
-    doc.rect(0, 0, pageW, 38, 'F');
+    const buildPdf = (logoDataUrl) => {
+      // ── HEADER BAR ───────────────────────────────────────
+      doc.setFillColor(79, 70, 229);
+      doc.rect(0, 0, pageW, 40, 'F');
 
-    // Company name
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(24);
-    doc.setTextColor(255, 255, 255);
-    doc.text('BRASTI', 20, 22);
+      // Logo in white rounded box
+      if (logoDataUrl) {
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(12, 7, 26, 26, 4, 4, 'F');
+        doc.addImage(logoDataUrl, 'PNG', 14, 9, 22, 22);
+      }
 
-    // Subtitle
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Production & Vente — Produits d\'entretien', 20, 30);
+      const textX = logoDataUrl ? 44 : 20;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(255, 255, 255);
+      doc.text('BRASTI', textX, 20);
+      doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+      doc.text('Production & Vente - Produits d\'entretien', textX, 29);
 
-    // FACTURE label (right side)
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
-    doc.text('FACTURE', pageW - 20, 20, { align: 'right' });
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(invoiceNum, pageW - 20, 28, { align: 'right' });
+      doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+      doc.text('FACTURE', pageW - 20, 18, { align: 'right' });
+      doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+      doc.text(invoiceNum, pageW - 20, 27, { align: 'right' });
 
-    // ── INFO BLOCKS ──────────────────────────────────────
-    doc.setTextColor(30, 41, 59);
+      // ── CLIENT & INVOICE INFO ────────────────────────────
+      doc.setTextColor(100, 116, 139); doc.setFontSize(8);
+      doc.text('FACTURE A :', 20, 52);
+      doc.text('N FACTURE :', pageW - 80, 52);
+      doc.text('DATE :', pageW - 80, 60);
+      doc.text('STATUT :', pageW - 80, 68);
 
-    // LEFT: bill to
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text('FACTURÉ À :', 20, 52);
-    doc.setTextColor(30, 41, 59);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text(v.client_nom || 'Client Anonyme', 20, 61);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139);
-    if (v.client_tel) doc.text(`Tél : ${v.client_tel}`, 20, 69);
+      doc.setTextColor(30, 41, 59); doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+      doc.text(v.client_nom || 'Client Anonyme', 20, 61);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(100, 116, 139);
+      if (v.client_tel) doc.text(`Tel : ${v.client_tel}`, 20, 69);
 
-    // RIGHT: invoice info
-    doc.setFontSize(9);
-    doc.text('N° FACTURE :', pageW - 80, 52);
-    doc.text('DATE :', pageW - 80, 60);
-    doc.text('STATUT :', pageW - 80, 68);
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 41, 59); doc.setFontSize(9);
+      doc.text(invoiceNum, pageW - 20, 52, { align: 'right' });
+      doc.text(invoiceDate, pageW - 20, 60, { align: 'right' });
+      if (v.est_paye) { doc.setTextColor(21, 128, 61); doc.text('PAYE', pageW - 20, 68, { align: 'right' }); }
+      else { doc.setTextColor(185, 28, 28); doc.text('CREDIT (non paye)', pageW - 20, 68, { align: 'right' }); }
 
-    doc.setTextColor(30, 41, 59);
-    doc.setFont('helvetica', 'bold');
-    doc.text(invoiceNum, pageW - 20, 52, { align: 'right' });
-    doc.text(invoiceDate, pageW - 20, 60, { align: 'right' });
+      // ── TABLE HEADER ─────────────────────────────────────
+      doc.setDrawColor(229, 231, 235); doc.setLineWidth(0.5);
+      doc.line(20, 78, pageW - 20, 78);
+      doc.setFillColor(245, 243, 255); doc.rect(20, 82, pageW - 40, 10, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(79, 70, 229);
+      doc.text('ARTICLE', 24, 89);
+      doc.text('QTE', 115, 89, { align: 'center' });
+      doc.text('PRIX UNIT.', 145, 89, { align: 'center' });
+      doc.text('TOTAL', pageW - 24, 89, { align: 'right' });
 
-    // Payment status badge
-    if (v.est_paye) {
-      doc.setTextColor(21, 128, 61);
-      doc.text('✓ PAYÉ', pageW - 20, 68, { align: 'right' });
-    } else {
-      doc.setTextColor(185, 28, 28);
-      doc.text('⚠ CRÉDIT (non payé)', pageW - 20, 68, { align: 'right' });
-    }
+      // ── PRODUCT ROW ──────────────────────────────────────
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(30, 41, 59);
+      doc.text(v.nom || '-', 24, 104);
+      doc.text(String(v.quantite), 115, 104, { align: 'center' });
+      doc.text(`${(+v.prix).toFixed(2)} DA`, 145, 104, { align: 'center' });
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${(v.prix * v.quantite).toFixed(2)} DA`, pageW - 24, 104, { align: 'right' });
+      doc.setDrawColor(229, 231, 235); doc.line(20, 110, pageW - 20, 110);
 
-    // ── SEPARATOR ────────────────────────────────────────
-    doc.setDrawColor(229, 231, 235);
-    doc.setLineWidth(0.5);
-    doc.line(20, 78, pageW - 20, 78);
+      // ── TOTAL BOX ────────────────────────────────────────
+      doc.setFillColor(79, 70, 229); doc.setDrawColor(79, 70, 229);
+      doc.roundedRect(pageW - 90, 116, 70, 18, 3, 3, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 255, 255);
+      doc.text('TOTAL', pageW - 55, 123, { align: 'center' });
+      doc.text(`${(v.prix * v.quantite).toFixed(2)} DA`, pageW - 55, 130, { align: 'center' });
 
-    // ── PRODUCT TABLE HEADER ─────────────────────────────
-    doc.setFillColor(248, 250, 252);
-    doc.rect(20, 82, pageW - 40, 10, 'F');
+      doc.setFontSize(9); doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal');
+      doc.text(`Sous-total : ${(v.prix * v.quantite).toFixed(2)} DA`, 20, 124);
+      doc.text('TVA : Hors taxes', 20, 132);
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text('ARTICLE', 24, 89);
-    doc.text('QTÉ', 115, 89, { align: 'center' });
-    doc.text('PRIX UNIT.', 145, 89, { align: 'center' });
-    doc.text('TOTAL', pageW - 24, 89, { align: 'right' });
+      // ── PAYMENT NOTE ─────────────────────────────────────
+      doc.setDrawColor(229, 231, 235); doc.line(20, 146, pageW - 20, 146);
+      doc.setFontSize(8); doc.setTextColor(100, 116, 139);
+      doc.text('Note de paiement :', 20, 154);
+      doc.setTextColor(30, 41, 59);
+      doc.text(v.est_paye ? 'Paiement recu - Aucun montant du.' : `Montant a regler : ${(v.prix * v.quantite).toFixed(2)} DA`, 20, 161);
 
-    // ── PRODUCT ROW ──────────────────────────────────────
-    const rowY = 106;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(11);
-    doc.setTextColor(30, 41, 59);
-    doc.text(v.nom || '—', 24, rowY);
-    doc.text(String(v.quantite), 115, rowY, { align: 'center' });
-    doc.text(`${(+v.prix).toFixed(2)} DA`, 145, rowY, { align: 'center' });
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${(v.prix * v.quantite).toFixed(2)} DA`, pageW - 24, rowY, { align: 'right' });
+      // ── FOOTER ───────────────────────────────────────────
+      doc.setFillColor(245, 243, 255); doc.rect(0, 275, pageW, 22, 'F');
+      doc.setFontSize(8); doc.setTextColor(100, 116, 139);
+      doc.text('Merci pour votre confiance ! - BRASTI Production & Vente', pageW / 2, 283, { align: 'center' });
+      doc.text('brasti.netlify.app', pageW / 2, 290, { align: 'center' });
 
-    // Row separator
-    doc.setDrawColor(229, 231, 235);
-    doc.line(20, 112, pageW - 20, 112);
+      doc.save(`Facture_${v.client_nom || 'Client'}_${invoiceNum}.pdf`);
+    };
 
-    // ── TOTAL BLOCK ──────────────────────────────────────
-    doc.setFillColor(79, 70, 229);
-    doc.setDrawColor(79, 70, 229);
-    doc.roundedRect(pageW - 90, 118, 70, 18, 3, 3, 'F');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(13);
-    doc.setTextColor(255, 255, 255);
-    doc.text('TOTAL', pageW - 55, 126, { align: 'center' });
-    doc.text(`${(v.prix * v.quantite).toFixed(2)} DA`, pageW - 55, 132, { align: 'center' });
-
-    // Sub-totals (left)
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Sous-total :  ${(v.prix * v.quantite).toFixed(2)} DA`, 20, 126);
-    doc.text(`TVA :  Hors taxes`, 20, 134);
-
-    // ── NOTES / CONDITIONS ───────────────────────────────
-    doc.setDrawColor(229, 231, 235);
-    doc.line(20, 148, pageW - 20, 148);
-
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Note de paiement :', 20, 156);
-    doc.setTextColor(30, 41, 59);
-    const payNote = v.est_paye
-      ? 'Paiement reçu — Aucun montant dû.'
-      : `Montant restant à régler : ${(v.prix * v.quantite).toFixed(2)} DA`;
-    doc.text(payNote, 20, 163);
-
-    // ── FOOTER ───────────────────────────────────────────
-    doc.setFillColor(248, 250, 252);
-    doc.rect(0, 275, pageW, 22, 'F');
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Merci pour votre confiance ! — BRASTI Production & Vente', pageW / 2, 283, { align: 'center' });
-    doc.text('brasti.netlify.app', pageW / 2, 290, { align: 'center' });
-
-    doc.save(`Facture_${v.client_nom || 'Client'}_${invoiceNum}.pdf`);
+    // Load logo then build PDF
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width; canvas.height = img.height;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        buildPdf(canvas.toDataURL('image/png'));
+      };
+      img.onerror = () => buildPdf(null);
+      img.src = '/logo.png';
+    } catch { buildPdf(null); }
   };
 
 
@@ -517,11 +516,46 @@ export default function App() {
         </div>
       </header>
 
+      {/* ── Notification Permission Banner ────────── */}
+      {showNotifBanner && (
+        <div style={{
+          position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)', zIndex: 9999,
+          background: 'var(--primary)', color: 'white', borderRadius: 20,
+          padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12,
+          boxShadow: '0 8px 30px rgba(79,70,229,0.4)', maxWidth: 380, width: 'calc(100% - 32px)',
+          animation: 'slideUp 0.4s ease-out'
+        }}>
+          <Bell size={20} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600 }}>Activer les notifications pour ne rien rater !</span>
+          <button onClick={requestNotifPermission} style={{ background:'white', color:'var(--primary)', border:'none', borderRadius:10, padding:'7px 14px', fontWeight:800, cursor:'pointer', fontSize:'0.82rem', flexShrink:0 }}>OK</button>
+          <button onClick={() => setShowNotifBanner(false)} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:'50%', width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'white', flexShrink:0 }}><X size={14} /></button>
+        </div>
+      )}
+
+      {/* ── PWA Install Banner ─────────────────── */}
+      {showInstallBanner && (
+        <div style={{
+          margin: '0 0 16px', background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+          borderRadius: 20, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14,
+          color: 'white', boxShadow: '0 8px 25px rgba(79,70,229,0.3)'
+        }}>
+          <img src="/logo.png" alt="" style={{ width: 44, height: 44, borderRadius: 12, objectFit: 'contain', background: 'white', padding: 4 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>Installer l'application Brasti</div>
+            <div style={{ fontSize: '0.8rem', opacity: 0.85, marginTop: 2 }}>Accès rapide depuis votre écran d'accueil</div>
+          </div>
+          <button onClick={installApp} style={{ background:'white', color:'#4f46e5', border:'none', borderRadius:12, padding:'9px 16px', fontWeight:800, cursor:'pointer', fontSize:'0.82rem', display:'flex', alignItems:'center', gap:6 }}>
+            <Smartphone size={16} /> Installer
+          </button>
+          <button onClick={() => setShowInstallBanner(false)} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:'50%', width:30, height:30, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'white' }}><X size={14} /></button>
+        </div>
+      )}
+
       {/* Nav */}
       <nav className="nav-tabs">
-        {['dashboard','stock','ventes','stats','chat'].map(tab => (
+        {['dashboard','stock','ventes','stats','chat','dev'].map(tab => (
           <button key={tab} className={`nav-tab${activeTab === tab ? ' active' : ''}`} onClick={() => setActiveTab(tab)}>
-            {tab === 'dashboard' ? 'Dashboard' : tab === 'stock' ? 'Stock' : tab === 'ventes' ? 'Ventes' : tab === 'stats' ? '📊 Stats' : 'AI Chat'}
+            {tab === 'dashboard' ? 'Dashboard' : tab === 'stock' ? 'Stock' : tab === 'ventes' ? 'Ventes' : tab === 'stats' ? '📊 Stats' : tab === 'chat' ? 'AI Chat' : '👨‍💻 Dev'}
           </button>
         ))}
       </nav>
@@ -684,30 +718,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Developer Profile */}
-            <div className="glass-container" style={{ textAlign: 'center' }}>
-              <div style={{ marginBottom: 8 }}>
-                <img src="/logo.png" alt="logo" style={{ width: 60, height: 60, borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--primary)' }} />
-              </div>
-              <h4 style={{ fontWeight: 900, fontSize: '1.1rem' }}>Hamza Amirni</h4>
-              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', margin: '4px 0 16px' }}>Développeur Full-Stack · Créateur de Brasti</p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
-                {[
-                  { label: '🌐 Portfolio', url: 'https://hamzaamirni.netlify.app' },
-                  { label: '📸 Instagram', url: 'https://instagram.com/hamza_amirni_01' },
-                  { label: '📺 YouTube', url: 'https://www.youtube.com/@Hamzaamirni01' },
-                  { label: '💬 WhatsApp', url: 'https://whatsapp.com/channel/0029ValXRoHCnA7yKopcrn1p' },
-                  { label: '📘 Facebook', url: 'https://www.facebook.com/profile.php?id=61564527797752' },
-                  { label: '✈️ Telegram', url: 'https://t.me/hamzaamirni' },
-                ].map(link => (
-                  <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" style={{
-                    padding: '8px 16px', borderRadius: 20, background: 'rgba(79,70,229,0.08)',
-                    color: 'var(--primary)', fontWeight: 700, fontSize: '0.82rem', textDecoration: 'none', transition: '0.2s',
-                    border: '1px solid rgba(79,70,229,0.15)'
-                  }}>{link.label}</a>
-                ))}
-              </div>
-            </div>
+
           </div>
         )}
 
@@ -765,6 +776,90 @@ export default function App() {
                 <button className="btn-primary" style={{ flexShrink: 0, padding: '12px 18px', opacity: isBotTyping ? 0.6 : 1 }} onClick={handleSend} disabled={isBotTyping}>
                   <Send size={18} />
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* DEVELOPER PROFILE TAB */}
+        {activeTab === 'dev' && (
+          <div className="animate-enter" style={{ padding: '0 0 40px' }}>
+            {/* Hero Card */}
+            <div style={{
+              background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%)',
+              borderRadius: 28, padding: '40px 28px 32px', textAlign: 'center',
+              marginBottom: 20, position: 'relative', overflow: 'hidden',
+              boxShadow: '0 20px 60px rgba(79,70,229,0.35)'
+            }}>
+              {/* Decorative circles */}
+              <div style={{ position:'absolute', top:-40, right:-40, width:160, height:160, borderRadius:'50%', background:'rgba(255,255,255,0.06)' }} />
+              <div style={{ position:'absolute', bottom:-30, left:-30, width:120, height:120, borderRadius:'50%', background:'rgba(255,255,255,0.06)' }} />
+
+              <div style={{ position:'relative', zIndex:1 }}>
+                <div style={{ width:100, height:100, borderRadius:'50%', margin:'0 auto 16px', border:'4px solid rgba(255,255,255,0.5)', overflow:'hidden', background:'white', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <img src="/logo.png" alt="Hamza Amirni" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                </div>
+                <h2 style={{ color:'white', fontWeight:900, fontSize:'1.6rem', margin:'0 0 6px', letterSpacing:'-0.5px' }}>Hamza Amirni</h2>
+                <p style={{ color:'rgba(255,255,255,0.85)', fontSize:'0.95rem', margin:'0 0 20px', fontWeight:500 }}>Full-Stack Developer · Créateur de Brasti</p>
+                <div style={{ display:'flex', justifyContent:'center', gap:10, flexWrap:'wrap' }}>
+                  {['React', 'Node.js', 'Supabase', 'PWA', 'Python'].map(skill => (
+                    <span key={skill} style={{ padding:'5px 14px', background:'rgba(255,255,255,0.18)', borderRadius:30, color:'white', fontSize:'0.78rem', fontWeight:700, backdropFilter:'blur(10px)', border:'1px solid rgba(255,255,255,0.25)' }}>{skill}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Stats Row */}
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
+              {[
+                { emoji:'💻', label:'Apps créées', value:'10+' },
+                { emoji:'⭐', label:'Projets livrés', value:'20+' },
+                { emoji:'🚀', label:'Années exp.', value:'3+' },
+              ].map(s => (
+                <div key={s.label} style={{ background:'var(--card)', borderRadius:20, padding:'18px 12px', textAlign:'center', border:'1.5px solid var(--card-border)', boxShadow:'0 4px 16px rgba(0,0,0,0.06)' }}>
+                  <div style={{ fontSize:'1.6rem', marginBottom:4 }}>{s.emoji}</div>
+                  <div style={{ fontWeight:900, fontSize:'1.3rem', color:'var(--primary)' }}>{s.value}</div>
+                  <div style={{ fontSize:'0.72rem', color:'var(--muted)', fontWeight:600, marginTop:2 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Social Links */}
+            <div style={{ background:'var(--card)', borderRadius:24, padding:'24px 20px', border:'1.5px solid var(--card-border)', marginBottom:16, boxShadow:'0 4px 20px rgba(0,0,0,0.06)' }}>
+              <h4 style={{ fontWeight:800, marginBottom:16, fontSize:'0.95rem', color:'var(--text)', letterSpacing:'-0.3px' }}>📡 Réseaux Sociaux</h4>
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {[
+                  { label:'Portfolio',   icon:'🌐', url:'https://hamzaamirni.netlify.app',    color:'#4f46e5', desc:'Voir mes projets' },
+                  { label:'Instagram',   icon:'📸', url:'https://instagram.com/hamza_amirni_01', color:'#e1306c', desc:'@hamza_amirni_01' },
+                  { label:'YouTube',     icon:'📺', url:'https://www.youtube.com/@Hamzaamirni01', color:'#ff0000', desc:'Tutoriels & contenus' },
+                  { label:'WhatsApp',    icon:'💬', url:'https://whatsapp.com/channel/0029ValXRoHCnA7yKopcrn1p', color:'#25d366', desc:'Canal WhatsApp' },
+                  { label:'Facebook',    icon:'📘', url:'https://www.facebook.com/profile.php?id=61564527797752', color:'#1877f2', desc:'Page Facebook' },
+                  { label:'Telegram',    icon:'✈️', url:'https://t.me/hamzaamirni',           color:'#229ED9', desc:'@hamzaamirni' },
+                ].map(link => (
+                  <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer"
+                    style={{ display:'flex', alignItems:'center', gap:14, padding:'13px 16px', borderRadius:16, background:`${link.color}0d`, border:`1.5px solid ${link.color}22`, textDecoration:'none', transition:'all 0.2s' }}
+                    onMouseEnter={e => e.currentTarget.style.transform='translateX(4px)'}
+                    onMouseLeave={e => e.currentTarget.style.transform='translateX(0)'}
+                  >
+                    <span style={{ fontSize:'1.3rem', width:38, height:38, display:'flex', alignItems:'center', justifyContent:'center', background:`${link.color}18`, borderRadius:12 }}>{link.icon}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, color:'var(--text)', fontSize:'0.9rem' }}>{link.label}</div>
+                      <div style={{ fontSize:'0.75rem', color:'var(--muted)', marginTop:1 }}>{link.desc}</div>
+                    </div>
+                    <span style={{ color:link.color, fontWeight:800, fontSize:'1rem' }}>→</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            {/* App Info */}
+            <div style={{ background:'linear-gradient(135deg, rgba(79,70,229,0.08), rgba(124,58,237,0.06))', borderRadius:24, padding:'22px 20px', border:'1.5px solid rgba(79,70,229,0.15)', textAlign:'center' }}>
+              <div style={{ fontSize:'2rem', marginBottom:8 }}>🏭</div>
+              <h4 style={{ fontWeight:900, color:'var(--text)', marginBottom:6 }}>Brasti Platform</h4>
+              <p style={{ color:'var(--muted)', fontSize:'0.83rem', lineHeight:1.6 }}>Application de gestion de production et vente · Développée avec React & Supabase · Version PWA</p>
+              <div style={{ marginTop:14, display:'flex', justifyContent:'center', gap:10 }}>
+                <a href="https://brasti.netlify.app" target="_blank" rel="noopener noreferrer" style={{ padding:'10px 20px', background:'var(--primary)', color:'white', borderRadius:14, fontSize:'0.82rem', fontWeight:800, textDecoration:'none' }}>🌐 Voir l'app</a>
+                <a href="https://hamzaamirni.netlify.app" target="_blank" rel="noopener noreferrer" style={{ padding:'10px 20px', background:'rgba(79,70,229,0.1)', color:'var(--primary)', border:'1.5px solid rgba(79,70,229,0.2)', borderRadius:14, fontSize:'0.82rem', fontWeight:800, textDecoration:'none' }}>📂 Portfolio</a>
               </div>
             </div>
           </div>

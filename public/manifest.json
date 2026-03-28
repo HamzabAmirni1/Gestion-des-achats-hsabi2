@@ -1,23 +1,32 @@
 {
-  "name": "إدارة حسابات المصنع",
-  "short_name": "إدارة المصنع",
-  "start_url": ".",
+  "name": "Brasti Platform",
+  "short_name": "Brasti",
+  "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
+  "background_color": "#f8fafc",
   "theme_color": "#4f46e5",
-  "description": "تطبيق إدارة المبيعات والمصاريف",
+  "description": "Gérez vos ventes, stocks et finances facilement",
+  "orientation": "portrait",
   "icons": [
     {
-      "src": "/icon.png",
+      "src": "/logo.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon.png",
+      "src": "/logo.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow"
     }
   ]
 }
