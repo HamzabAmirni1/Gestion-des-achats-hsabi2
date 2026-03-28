@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   LayoutDashboard, ShoppingCart, TrendingDown, Package, 
   Plus, Search, Download, Moon, Sun, Trash2, RefreshCw,
   LogOut, User, Printer, Award, Calendar, Smartphone,
-  MessageSquare, PlusCircle, Phone, Mail, MessageCircle, MoreHorizontal
+  MessageSquare, PlusCircle, Phone, Mail, MessageCircle, MoreHorizontal, Send
 } from 'lucide-react';
 import { format, isThisWeek, isThisMonth, isThisYear, isToday, parseISO } from 'date-fns';
 import {
@@ -43,7 +43,8 @@ export default function App() {
     description: '', features: '', statut_paiement: 'payé', date: format(new Date(), 'yyyy-MM-dd')
   });
 
-  const [searchQuery, setSearchQuery] = useState('');
+  const [chatInput, setChatInput] = useState('');
+  const chatEndRef = useRef(null);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [dashboardFilter, setDashboardFilter] = useState('all');
 
@@ -76,76 +77,32 @@ export default function App() {
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); }, [theme]);
   const toggleTheme = () => setTheme(theme === 'light' ? 'dark' : 'light');
 
-  useEffect(() => {
-    const handler = (e) => { e.preventDefault(); setInstallPrompt(e); };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
+  const scrollToBottom = () => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); };
+  useEffect(() => { scrollToBottom(); }, [messages]);
 
-  const handleInstallClick = async () => {
-    if (!installPrompt) return;
-    installPrompt.prompt();
-    const { outcome } = await installPrompt.userChoice;
-    if (outcome === 'accepted') setInstallPrompt(null);
-  };
-
-  const stock = useMemo(() => {
-    const map = new Map();
-    achats.forEach(a => {
-      const n = a.nom.toLowerCase().trim();
-      const c = map.get(n) || { nom: a.nom, q: 0 };
-      c.q += parseFloat(a.quantite);
-      map.set(n, c);
-    });
-    ventes.forEach(v => {
-      const n = v.nom.toLowerCase().trim();
-      const c = map.get(n) || { nom: v.nom, q: 0 };
-      c.q -= parseFloat(v.quantite);
-      map.set(n, c);
-    });
-    return Array.from(map.values()).filter(i => i.q > 0).map(i => ({nom: i.nom, quantite: i.q}));
-  }, [achats, ventes]);
-
-  const dashVentes = useMemo(() => {
-    return ventes.filter(v => {
-      if (dashboardFilter === 'all') return true;
-      const d = parseISO(v.date);
-      if (dashboardFilter === 'year') return isThisYear(d);
-      if (dashboardFilter === 'month') return isThisMonth(d);
-      if (dashboardFilter === 'week') return isThisWeek(d);
-      if (dashboardFilter === 'today') return isToday(d);
-      return true;
-    });
-  }, [ventes, dashboardFilter]);
-
-  const dashAchats = useMemo(() => {
-    return achats.filter(a => {
-      if (dashboardFilter === 'all') return true;
-      const d = parseISO(a.date);
-      if (dashboardFilter === 'year') return isThisYear(d);
-      if (dashboardFilter === 'month') return isThisMonth(d);
-      if (dashboardFilter === 'week') return isThisWeek(d);
-      if (dashboardFilter === 'today') return isToday(d);
-      return true;
-    });
-  }, [achats, dashboardFilter]);
-
-  const totalAchats = dashAchats.reduce((a, c) => a + (c.prix * c.quantite), 0);
-  const totalVentes = dashVentes.reduce((a, c) => a + (c.prix * c.quantite), 0);
+  const totalVentes = useMemo(() => ventes.reduce((a, c) => a + (c.prix * c.quantite), 0), [ventes]);
+  const totalAchats = useMemo(() => achats.reduce((a, c) => a + (c.prix * c.quantite), 0), [achats]);
   const benefice = totalVentes - totalAchats;
-  const unPaidVentes = dashVentes.filter(v => v.statut_paiement === 'non_payé').reduce((a, c) => a + (c.prix * c.quantite), 0);
-  const unPaidAchats = dashAchats.filter(v => v.statut_paiement === 'non_payé').reduce((a, c) => a + (c.prix * c.quantite), 0);
-  const caisse = (totalVentes - unPaidVentes) - (totalAchats - unPaidAchats);
+  const ventesCetteSemaine = useMemo(() => ventes.filter(v => isThisWeek(parseISO(v.date))).reduce((a, c) => a + (c.prix * c.quantite), 0), [ventes]);
 
   const getBotResponse = async (text) => {
      try {
+       // On passe le contexte des ventes et du stock au Bot
+       const systemContext = `Tu es Brasti AI. Voici les infos du site: 
+       - Total Ventes: ${totalVentes} DA
+       - Total Achats: ${totalAchats} DA
+       - Bénéfice: ${benefice} DA
+       - Ventes de cette semaine: ${ventesCetteSemaine} DA
+       - Nombre de produits: ${products.length}
+       Réponds poliment en français aux questions de l'utilisateur sur ces données.`;
+
        const res = await fetch("https://luminai.my.id/", {
          method: "POST", headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ content: text, prompt: "Vous êtes Brasti Assistant, répondez en français." })
+         body: JSON.stringify({ content: text, prompt: systemContext })
        });
        const data = await res.json();
        return data.result || data.response;
-     } catch (e) { return "Message reçu. Nous vous répondrons bientôt."; }
+     } catch (e) { return "Désolé, j'ai eu un problème pour lire les données. Mais je suis là pour aider !"; }
   };
 
   useEffect(() => {
@@ -161,81 +118,18 @@ export default function App() {
     }
   }, [messages]);
 
-  const sendMessage = async (content) => {
-    if (!content.trim()) return;
+  const handleSendMessage = async () => {
+    if (!chatInput.trim()) return;
+    const content = chatInput;
+    setChatInput('');
     const newMsg = { user_id: session.user.id, sender: 'customer', content, is_bot: false };
     const { data } = await supabase.from('messages').insert([newMsg]).select();
     if (data) setMessages([...messages, data[0]]);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    const table = modalType === 'vente' ? 'ventes' : 'achats';
-    const item = { 
-      user_id: session.user.id, 
-      nom: formData.nom.trim(), 
-      quantite: parseFloat(formData.quantite), 
-      prix: modalType === 'stock_add' ? 0 : parseFloat(formData.prix), 
-      statut_paiement: modalType === 'stock_add' ? 'payé' : formData.statut_paiement, 
-      date: formData.date 
-    };
-    if (modalType === 'vente') { item.client_nom = formData.client_nom; item.client_tel = formData.client_tel; }
-    const { data } = await supabase.from(table).insert([item]).select();
-    if (data) {
-      if (table === 'achats') setAchats([data[0], ...achats]); else setVentes([data[0], ...ventes]);
-      Swal.fire('Succès !', 'Action enregistrée.', 'success');
-      setIsModalOpen(false);
-      setFormData({...formData, nom: '', quantite: '', prix: '', client_nom: '', client_tel: ''});
-    }
-    setIsSubmitting(false);
-  };
-
-  const handleProductSubmit = async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    const item = { 
-      user_id: session.user.id, 
-      nom: formData.nom, 
-      prix: parseFloat(formData.prix), 
-      description: formData.description, 
-      features: formData.features.split(',').map(f => f.trim()) 
-    };
-    const { data } = await supabase.from('products').insert([item]).select();
-    if (data) {
-      setProducts([data[0], ...products]);
-      Swal.fire('Succès !', 'Produit ajouté au catalogue.', 'success');
-      setIsModalOpen(false);
-    }
-    setIsSubmitting(false);
-  };
-
-  const deleteItem = async (id, type) => {
-    const res = await Swal.fire({ title: 'Supprimer ?', icon: 'warning', showCancelButton: true });
-    if (!res.isConfirmed) return;
-    const table = type === 'achat' ? 'achats' : 'ventes';
-    await supabase.from(table).delete().eq('id', id);
-    if (type === 'achat') setAchats(achats.filter(a => a.id !== id)); else setVentes(ventes.filter(v => v.id !== id));
-  };
-
-  const togglePaiement = async (item, type) => {
-    const table = type === 'achat' ? 'achats' : 'ventes';
-    const status = item.statut_paiement === 'payé' ? 'non_payé' : 'payé';
-    await supabase.from(table).update({ statut_paiement: status }).eq('id', item.id);
-    if (type === 'achat') setAchats(achats.map(a => a.id === item.id ? {...a, statut_paiement: status} : a)); else setVentes(ventes.map(v => v.id === item.id ? {...v, statut_paiement: status} : v));
-  };
-
-  const handleAuth = async (e) => {
-    e.preventDefault();
-    setAuthLoading(true);
-    let r = authMode === 'login' ? await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword }) : await supabase.auth.signUp({ email: authEmail, password: authPassword });
-    if (r.error) setAuthError(r.error.message);
-    setAuthLoading(false);
-  };
-
   const handleDownloadPDF = async () => {
     const input = document.getElementById('pdf-content');
-    Swal.fire({ title: 'Génération PDF...', didOpen: () => Swal.showLoading() });
+    Swal.fire({ title: 'PDF...', didOpen: () => Swal.showLoading() });
     try {
       const img = await htmlToImage.toJpeg(input, { quality: 0.9, pixelRatio: 2, backgroundColor: theme === 'dark' ? '#0f172a' : '#fff' });
       const pdf = new jsPDF('l', 'mm', 'a4');
@@ -244,22 +138,19 @@ export default function App() {
       pdf.addImage(img, 'JPEG', 0, 0, w, h);
       const ts = format(new Date(), 'yyyy-MM-dd_HH-mm-ss');
       pdf.save(`Rapport_Brasti_${ts}.pdf`);
-      Swal.fire('Succès', 'PDF téléchargé avec succès !', 'success');
+      Swal.fire('Succès', 'PDF téléchargé', 'success');
     } catch (e) { Swal.fire('Erreur', e.message, 'error'); }
   };
 
   if (!session) return (
     <div className="auth-container">
       <div className="auth-card">
-        <div className="auth-icon"><User size={60} /></div>
-        <h1 className="auth-title">Brasti Management</h1>
-        <form className="auth-form" onSubmit={handleAuth}>
-          <div className="form-group"><label>Email</label><input className="form-control" type="email" required onChange={e=>setAuthEmail(e.target.value)} /></div>
-          <div className="form-group"><label>Mot de passe</label><input className="form-control" type="password" required onChange={e=>setAuthPassword(e.target.value)} /></div>
-          {authError && <div style={{color:'red', marginBottom:'10px'}}>{authError}</div>}
-          <button className="btn-primary" style={{width:'100%'}} type="submit">{authLoading ? '...' : (authMode==='login'?'Connexion':'Inscription')}</button>
+        <h1 className="auth-title">Brasti</h1>
+        <form className="auth-form" onSubmit={(e)=>{e.preventDefault(); setAuthLoading(true); supabase.auth.signInWithPassword({email:authEmail, password:authPassword}).then(r=>{if(r.error) setAuthError(r.error.message); setAuthLoading(false);})}}>
+          <div className="form-group"><label>Email</label><input className="form-control" onChange={e=>setAuthEmail(e.target.value)} /></div>
+          <div className="form-group"><label>Pass</label><input className="form-control" type="password" onChange={e=>setAuthPassword(e.target.value)} /></div>
+          <button className="btn-primary" style={{width:'100%'}}>{authLoading ? '...' : 'Connexion'}</button>
         </form>
-        <button className="auth-switch" onClick={()=>setAuthMode(authMode==='login'?'register':'login')}>{authMode==='login'?"Pas de compte ? Créer un":"Déjà un compte ? Se connecter"}</button>
       </div>
     </div>
   );
@@ -267,7 +158,7 @@ export default function App() {
   return (
     <div className="app-wrapper" id="pdf-content">
       <header className="header">
-        <div className="header-title"><span>Brasti Business</span></div>
+        <div className="header-title">Brasti Business</div>
         <div className="header-actions">
           <button className="icon-btn" onClick={fetchData}><RefreshCw size={20} /></button>
           <button className="icon-btn" onClick={handleDownloadPDF}><Download size={20} /></button>
@@ -275,7 +166,6 @@ export default function App() {
           <button className="icon-btn" onClick={()=>supabase.auth.signOut()}><LogOut size={20}/></button>
         </div>
       </header>
-
       <nav className="nav-tabs">
         <button className={`nav-tab ${activeTab==='dashboard'?'active':''}`} onClick={()=>setActiveTab('dashboard')}><LayoutDashboard size={18} /> Dashboard</button>
         <button className={`nav-tab ${activeTab==='products'?'active':''}`} onClick={()=>setActiveTab('products')}><Package size={18} /> Catalogue</button>
@@ -290,38 +180,38 @@ export default function App() {
               <div className="stat-card revenue"><div className="stat-value">{totalVentes} DA</div><div className="stat-label">Ventes</div></div>
               <div className="stat-card expenses"><div className="stat-value">{totalAchats} DA</div><div className="stat-label">Dépenses</div></div>
               <div className="stat-card profit"><div className="stat-value">{benefice} DA</div><div className="stat-label">Bénéfice</div></div>
-              <div className="stat-card"><div className="stat-value">{caisse} DA</div><div className="stat-label">Caisse</div></div>
             </div>
-            <div className="glass-container"><h3>Performance des Revenus</h3><Line data={{labels:['Jan','Feb','Mar','Apr','May','Jun'], datasets:[{label:'Ventes', data:[totalVentes/2, totalVentes], borderColor:'#10b981', fill:true}]}} /></div>
+            <div className="glass-container"><h3>Ventes de la semaine: {ventesCetteSemaine} DA</h3><Line data={{labels:['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'], datasets:[{label:'Ventes', data:[0,0,0,0,0,0,ventesCetteSemaine], borderColor:'#10b981', fill:true}]}} /></div>
           </div>
         )}
 
         {activeTab === 'products' && (
           <div className="animate-enter">
-            <div className="section-header"><div className="section-title">Produits</div><button className="btn-primary" onClick={()=>{setModalType('product'); setIsModalOpen(true)}}><Plus size={18}/> Nouveau</button></div>
+            <div className="section-header"><div className="section-title">Catalogue</div><button className="btn-primary" onClick={()=>{setModalType('product'); setIsModalOpen(true)}}><Plus size={18}/> New</button></div>
             <div className="products-grid">
-              {products.map(p=><div key={p.id} className="product-card"><div className="product-name">{p.nom}</div><div className="product-price">{p.prix} DA</div><p>{p.description}</p><div className="product-features">{p.features?.map((f,i)=><span key={i} className="feature-tag">{f}</span>)}</div></div>)}
+              {products.map(p=><div key={p.id} className="product-card"><div className="product-name">{p.nom}</div><div className="product-price">{p.prix} DA</div><p>{p.description}</p></div>)}
             </div>
           </div>
         )}
 
         {activeTab === 'ventes' && (
           <div className="glass-container animate-enter">
-            <div className="section-header"><div className="section-title">Ventes Récentes</div><button className="btn-primary" onClick={()=>{setModalType('vente'); setIsModalOpen(true)}}><Plus size={18}/> Vente</button></div>
-            <table className="data-table">
-              <thead><tr><th>Client</th><th>Produit</th><th>Total</th><th>Status</th></tr></thead>
-              <tbody>
-                {ventes.map(v=><tr key={v.id}><td>{v.client_nom}</td><td>{v.nom}</td><td>{v.prix*v.quantite} DA</td><td><button className={`badge ${v.statut_paiement==='payé'?'badge-success':'badge-danger'}`} onClick={()=>togglePaiement(v,'vente')}>{v.statut_paiement}</button></td></tr>)}
-              </tbody>
-            </table>
+            <div className="section-header"><div className="section-title">Toutes les Ventes</div><button className="btn-primary" onClick={()=>{setModalType('vente'); setIsModalOpen(true)}}><Plus size={18}/> New</button></div>
+            <table className="data-table"><thead><tr><th>Client</th><th>Produit</th><th>Total</th></tr></thead><tbody>{ventes.map(v=><tr key={v.id}><td>{v.client_nom}</td><td>{v.nom}</td><td>{v.prix*v.quantite} DA</td></tr>)}</tbody></table>
           </div>
         )}
 
         {activeTab === 'chat' && (
           <div className="glass-container animate-enter">
             <div className="chat-container">
-              <div className="chat-messages">{messages.map((m,i)=><div key={i} className={`message ${m.sender} ${m.is_bot?'bot':''}`}>{m.content}</div>)}</div>
-              <div className="chat-input-area"><input className="form-control" placeholder="Taper un message..." onKeyDown={e=>{if(e.key==='Enter'){sendMessage(e.target.value); e.target.value=''}}} /></div>
+              <div className="chat-messages">
+                {messages.map((m,i)=><div key={i} className={`message ${m.sender} ${m.is_bot?'bot':''}`}>{m.content}</div>)}
+                <div ref={chatEndRef} />
+              </div>
+              <div className="chat-input-area">
+                <input className="form-control" value={chatInput} placeholder="Posez une question sur vos ventes..." onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSendMessage()} />
+                <button className="btn-primary" onClick={handleSendMessage}><Send size={18} /></button>
+              </div>
             </div>
           </div>
         )}
@@ -330,15 +220,11 @@ export default function App() {
       {isModalOpen && (
         <div className="modal-overlay" onClick={()=>setIsModalOpen(false)}>
           <div className="modal-content" onClick={e=>e.stopPropagation()}>
-            <h3>{modalType === 'product' ? 'Nouveau Produit' : 'Nouvelle Vente'}</h3>
-            <form onSubmit={modalType==='product'?handleProductSubmit:handleSubmit}>
-              <div className="form-group"><label>Nom</label><input className="form-control" required onChange={e=>setFormData({...formData, nom:e.target.value})} /></div>
-              {modalType === 'product' ? (
-                <><div className="form-group"><label>Prix</label><input type="number" className="form-control" required onChange={e=>setFormData({...formData, prix:e.target.value})} /></div><div className="form-group"><label>Description</label><textarea className="form-control" onChange={e=>setFormData({...formData, description:e.target.value})} /></div><div className="form-group"><label>Features (tag1, tag2)</label><input className="form-control" onChange={e=>setFormData({...formData, features:e.target.value})} /></div></>
-              ) : (
-                <><div className="form-group"><label>Client</label><input className="form-control" required onChange={e=>setFormData({...formData, client_nom:e.target.value})} /></div><div className="form-group"><label>Quantité</label><input type="number" className="form-control" required onChange={e=>setFormData({...formData, quantite:e.target.value})} /></div><div className="form-group"><label>Prix Unit.</label><input type="number" className="form-control" required onChange={e=>setFormData({...formData, prix:e.target.value})} /></div></>
-              )}
-              <div className="modal-footer"><button type="submit" className="btn-primary" disabled={isSubmitting}>Enregistrer</button></div>
+            <form onSubmit={async (e)=>{e.preventDefault(); setIsSubmitting(true); const table = modalType==='product'?'products':'ventes'; const item = {user_id:session.user.id, nom:formData.nom, prix:parseFloat(formData.prix), quantite:parseFloat(formData.quantite)||1, client_nom:formData.client_nom, description:formData.description, date:format(new Date(),'yyyy-MM-dd')}; const {data}=await supabase.from(table).insert([item]).select(); if(data){ fetchData(); setIsModalOpen(false); } setIsSubmitting(false);}}>
+               <div className="form-group"><label>Nom</label><input className="form-control" required onChange={e=>setFormData({...formData, nom:e.target.value})} /></div>
+               <div className="form-group"><label>Prix</label><input type="number" className="form-control" required onChange={e=>setFormData({...formData, prix:e.target.value})} /></div>
+               {modalType==='vente' && <div className="form-group"><label>Client</label><input className="form-control" required onChange={e=>setFormData({...formData, client_nom:e.target.value})} /></div>}
+               <button type="submit" className="btn-primary" disabled={isSubmitting}>OK</button>
             </form>
           </div>
         </div>

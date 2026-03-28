@@ -152,7 +152,14 @@ body {
 .admin { align-self: flex-start; background: white; border: 1px solid var(--card-border); border-bottom-left-radius: 2px; }
 .bot { background: linear-gradient(135deg, #6366f1, #a855f7); color: white; }
 
-.chat-input-area { padding: 15px; border-top: 1px solid var(--card-border); background: white; }
+.chat-input-area { 
+  padding: 15px; 
+  border-top: 1px solid var(--card-border); 
+  background: white; 
+  display: flex; /* Added to accommodate send button */
+  align-items: center; /* Added for vertical alignment */
+  gap: 10px; /* Added for spacing between input and button */
+}
 .form-control { 
   width: 100%; padding: 10px 15px; border-radius: 10px; border: 1px solid var(--card-border);
   background: rgba(255,255,255,0.8); outline: none;
