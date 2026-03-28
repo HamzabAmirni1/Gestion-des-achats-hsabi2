@@ -3,8 +3,8 @@
   --primary-hover: #4338ca;
   --secondary: #10b981;
   --secondary-hover: #059669;
-  --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-  --card-bg: rgba(255, 255, 255, 0.9);
+  --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%), url("https://www.transparenttextures.com/patterns/cubes.png");
+  --card-bg: rgba(255, 255, 255, 0.92);
   --card-border: rgba(255, 255, 255, 0.5);
   --text-main: #1e293b;
   --text-muted: #64748b;
@@ -16,7 +16,7 @@
 
 [data-theme="dark"] {
   --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
-  --card-bg: rgba(15, 23, 42, 0.8);
+  --card-bg: rgba(15, 23, 42, 0.85);
   --card-border: rgba(255, 255, 255, 0.05);
   --text-main: #f8fafc;
   --text-muted: #94a3b8;
@@ -123,12 +123,11 @@ body { background: var(--bg-gradient); color: var(--text-main); min-height: 100v
 .modal-content { 
   background: var(--card-bg); padding: 35px; border-radius: 24px; 
   width: 95%; max-width: 460px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-  border: 1px solid var(--card-border); transform: translateY(0);
+  border: 1px solid var(--card-border); animation: slideUp 0.3s ease;
 }
 .modal-content h3 { margin-bottom: 25px; font-weight: 800; color: var(--primary); font-size: 1.4rem; text-align: left; }
 .form-group { margin-bottom: 20px; text-align: left; width: 100%; }
 .form-group label { display: block; margin-bottom: 8px; font-weight: 700; font-size: 0.9rem; color: var(--text-main); }
-
 
 @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 .animate-enter { animation: slideUp 0.4s ease forwards; }
