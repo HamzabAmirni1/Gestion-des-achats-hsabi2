@@ -45,31 +45,15 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  /* ── Push Notification Permission ─────────────── */
-  const [showNotifBanner, setShowNotifBanner] = useState(false);
+  /* ── PWA Install ─────────────────────────── */
   const [deferredPrompt, setDeferredPrompt]   = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
 
   useEffect(() => {
-    // PWA install prompt
     const handler = (e) => { e.preventDefault(); setDeferredPrompt(e); setShowInstallBanner(true); };
     window.addEventListener('beforeinstallprompt', handler);
-    // Ask notification permission after 3 seconds if logged in
-    const t = setTimeout(() => {
-      if ('Notification' in window && Notification.permission === 'default') setShowNotifBanner(true);
-    }, 3000);
-    return () => { window.removeEventListener('beforeinstallprompt', handler); clearTimeout(t); };
+    return () => { window.removeEventListener('beforeinstallprompt', handler); };
   }, []);
-
-  const requestNotifPermission = async () => {
-    setShowNotifBanner(false);
-    if ('Notification' in window) {
-      const perm = await Notification.requestPermission();
-      if (perm === 'granted') {
-        new Notification('Brasti ✔', { body: 'Notifications activées ! Vous serez alerté des nouveautés.', icon: '/logo.png' });
-      }
-    }
-  };
 
   const installApp = async () => {
     if (!deferredPrompt) return;
@@ -145,85 +129,109 @@ export default function App() {
     const month = statsBy('month');
     const year  = statsBy('year');
 
-    // Header
-    doc.setFillColor(79, 70, 229); doc.rect(0, 0, W, 40, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor(255,255,255);
-    doc.text('BRASTI - Rapport Complet', 20, 22);
-    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-    doc.text(`Genere le ${today}`, 20, 32);
+    const buildReport = (logoDataUrl) => {
+      // Header
+      doc.setFillColor(79, 70, 229); doc.rect(0, 0, W, 44, 'F');
 
-    let y = 52;
-    const pageH = doc.internal.pageSize.getHeight();
-
-    const checkPage = () => {
-      if (y > pageH - 30) {
-        doc.addPage();
-        doc.setFillColor(79, 70, 229); doc.rect(0, 0, W, 10, 'F');
-        y = 20;
+      // Logo in white rounded box
+      if (logoDataUrl) {
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(12, 7, 28, 28, 4, 4, 'F');
+        doc.addImage(logoDataUrl, 'PNG', 14, 9, 24, 24);
       }
+      const textX = logoDataUrl ? 46 : 20;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(255,255,255);
+      doc.text('BRASTI - Rapport Complet', textX, 22);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+      doc.text(`Genere le ${today}`, textX, 32);
+
+      let y = 56;
+      const pageH = doc.internal.pageSize.getHeight();
+
+      const checkPage = () => {
+        if (y > pageH - 30) {
+          doc.addPage();
+          doc.setFillColor(79, 70, 229); doc.rect(0, 0, W, 10, 'F');
+          y = 20;
+        }
+      };
+
+      const section = (title) => {
+        checkPage();
+        doc.setFillColor(240, 240, 252); doc.rect(15, y - 6, W - 30, 10, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(79, 70, 229);
+        doc.text(title, 18, y); y += 12;
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 41, 59);
+      };
+
+      const row = (label, value, r, g, b) => {
+        checkPage();
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+        doc.setTextColor(100, 116, 139); doc.text(String(label).slice(0, 60), 20, y);
+        if (r !== undefined) doc.setTextColor(r, g, b);
+        else doc.setTextColor(30, 41, 59);
+        doc.setFont('helvetica', 'bold');
+        doc.text(String(value), W - 20, y, { align: 'right' });
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 41, 59);
+        doc.setDrawColor(230, 235, 245); doc.line(20, y + 2, W - 20, y + 2);
+        y += 10;
+      };
+
+      section('Resume Global');
+      row('Total Ventes', `${totalVentes.toFixed(0)} DA`, 30, 41, 59);
+      row('Benefice Net', `${benefice.toFixed(0)} DA`, 16, 122, 87);
+      row('Non Payes (Credit)', `${totalDettes.toFixed(0)} DA`, 185, 28, 28);
+      row('Nombre de Transactions', ventes.length);
+      y += 6;
+
+      section('Statistiques par Periode');
+      row('Cette semaine - CA', `${week.ca.toFixed(0)} DA`);
+      row('Cette semaine - Benefice', `${week.ben.toFixed(0)} DA`, 16, 122, 87);
+      row(`Ce mois (${format(new Date(),'MMMM yyyy')}) - CA`, `${month.ca.toFixed(0)} DA`);
+      row(`Ce mois - Benefice`, `${month.ben.toFixed(0)} DA`, 16, 122, 87);
+      row(`Cette annee ${new Date().getFullYear()} - CA`, `${year.ca.toFixed(0)} DA`);
+      row(`Cette annee - Benefice`, `${year.ben.toFixed(0)} DA`, 16, 122, 87);
+      y += 6;
+
+      section('Top Produits Vendus');
+      if (topProducts.length === 0) row('Aucune vente enregistree', '-');
+      topProducts.slice(0, 8).forEach((p, i) => row(`${i + 1}. ${p.nom}  (x${p.qty} unites)`, `${p.total.toFixed(0)} DA`, 79, 70, 229));
+      y += 6;
+
+      section('Etat du Stock');
+      if (products.length === 0) row('Aucun produit', '-');
+      products.forEach(p => row(`${p.nom}`, `${p.stock_qty} unites  |  Cout: ${p.prix_unitaire} DA`));
+      y += 6;
+
+      section('Dernieres Ventes (10 recentes)');
+      if (ventes.length === 0) row('Aucune vente', '-');
+      ventes.slice(0, 10).forEach(v => {
+        const status = v.est_paye ? 'Paye' : 'Credit';
+        row(`${v.date || '--'} | ${v.nom} | ${v.client_nom || 'Client'}`, `${(v.prix * v.quantite).toFixed(0)} DA [${status}]`);
+      });
+
+      // Footer on last page
+      const lastY = doc.internal.pageSize.getHeight() - 15;
+      doc.setFillColor(248, 250, 252); doc.rect(0, lastY - 6, W, 20, 'F');
+      doc.setFontSize(8); doc.setTextColor(100, 116, 139);
+      doc.text('BRASTI - brasti.netlify.app | Developpe par Hamza Amirni', W / 2, lastY, { align: 'center' });
+
+      doc.save(`Rapport_Brasti_${today.replace(/\//g, '-')}.pdf`);
     };
 
-    const section = (title) => {
-      checkPage();
-      doc.setFillColor(240, 240, 252); doc.rect(15, y - 6, W - 30, 10, 'F');
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(79, 70, 229);
-      doc.text(title, 18, y); y += 12;
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 41, 59);
-    };
-
-    const row = (label, value, r, g, b) => {
-      checkPage();
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-      doc.setTextColor(100, 116, 139); doc.text(String(label).slice(0, 60), 20, y);
-      if (r !== undefined) doc.setTextColor(r, g, b);
-      else doc.setTextColor(30, 41, 59);
-      doc.setFont('helvetica', 'bold');
-      doc.text(String(value), W - 20, y, { align: 'right' });
-      doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 41, 59);
-      doc.setDrawColor(230, 235, 245); doc.line(20, y + 2, W - 20, y + 2);
-      y += 10;
-    };
-
-    section('Resume Global');
-    row('Total Ventes', `${totalVentes.toFixed(0)} DA`, 30, 41, 59);
-    row('Benefice Net', `${benefice.toFixed(0)} DA`, 16, 122, 87);
-    row('Non Payes (Credit)', `${totalDettes.toFixed(0)} DA`, 185, 28, 28);
-    row('Nombre de Transactions', ventes.length);
-    y += 6;
-
-    section('Statistiques par Periode');
-    row('Cette semaine - CA', `${week.ca.toFixed(0)} DA`);
-    row('Cette semaine - Benefice', `${week.ben.toFixed(0)} DA`, 16, 122, 87);
-    row(`Ce mois (${format(new Date(),'MMMM yyyy')}) - CA`, `${month.ca.toFixed(0)} DA`);
-    row(`Ce mois - Benefice`, `${month.ben.toFixed(0)} DA`, 16, 122, 87);
-    row(`Cette annee ${new Date().getFullYear()} - CA`, `${year.ca.toFixed(0)} DA`);
-    row(`Cette annee - Benefice`, `${year.ben.toFixed(0)} DA`, 16, 122, 87);
-    y += 6;
-
-    section('Top Produits Vendus');
-    if (topProducts.length === 0) row('Aucune vente enregistree', '-');
-    topProducts.slice(0, 8).forEach((p, i) => row(`${i + 1}. ${p.nom}  (x${p.qty} unites)`, `${p.total.toFixed(0)} DA`, 79, 70, 229));
-    y += 6;
-
-    section('Etat du Stock');
-    if (products.length === 0) row('Aucun produit', '-');
-    products.forEach(p => row(`${p.nom}`, `${p.stock_qty} unites  |  Cout: ${p.prix_unitaire} DA`));
-    y += 6;
-
-    section('Dernieres Ventes (10 recentes)');
-    if (ventes.length === 0) row('Aucune vente', '-');
-    ventes.slice(0, 10).forEach(v => {
-      const status = v.est_paye ? 'Paye' : 'Credit';
-      row(`${v.date || '--'} | ${v.nom} | ${v.client_nom || 'Client'}`, `${(v.prix * v.quantite).toFixed(0)} DA [${status}]`);
-    });
-
-    // Footer on last page
-    const lastY = doc.internal.pageSize.getHeight() - 15;
-    doc.setFillColor(248, 250, 252); doc.rect(0, lastY - 6, W, 20, 'F');
-    doc.setFontSize(8); doc.setTextColor(100, 116, 139);
-    doc.text('BRASTI - brasti.netlify.app | Developpe par Hamza Amirni', W / 2, lastY, { align: 'center' });
-
-    doc.save(`Rapport_Brasti_${today.replace(/\//g, '-')}.pdf`);
+    // Load logo then build PDF
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width; canvas.height = img.height;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        buildReport(canvas.toDataURL('image/png'));
+      };
+      img.onerror = () => buildReport(null);
+      img.src = '/logo.png';
+    } catch { buildReport(null); }
   };
 
 
@@ -402,6 +410,31 @@ export default function App() {
     }
   };
 
+  /* ── Update Product (edit stock) ─────────── */
+  const handleUpdate = async (e) => {
+    e.preventDefault(); setSubmit(true);
+    try {
+      const { error } = await supabase.from('products').update({
+        nom: form.nom,
+        prix_unitaire: +form.prix,
+        stock_qty: +form.quantite,
+      }).eq('id', form.product_id);
+      if (error) throw error;
+      setModal(false);
+      fetchData();
+      Swal.fire({ icon: 'success', title: 'Mis à jour !', timer: 900, showConfirmButton: false });
+    } catch (err) {
+      setModal(false);
+      Swal.fire('Erreur', err?.message || 'Erreur mise à jour', 'error');
+    } finally { setSubmit(false); }
+  };
+
+  /* ── Open edit product modal ─────────────── */
+  const openEditProduct = (p) => {
+    setForm({ nom: p.nom, quantite: p.stock_qty, prix: p.prix_unitaire, product_id: p.id, client_nom: '', client_tel: '', est_paye: true });
+    setModalType('editProduct'); setModal(true);
+  };
+
   /* ── AI Chat ─────────────────────────────── */
   const [isBotTyping, setIsBotTyping] = useState(false);
 
@@ -419,18 +452,29 @@ export default function App() {
 
     setIsBotTyping(true);
     try {
-      // Build context from business data
-      const ctx = `Tu es un assistant commercial pour BRASTI. Données actuelles: Ventes totales=${totalVentes.toFixed(0)}DA, Bénéfice net=${benefice.toFixed(0)}DA, Dettes impayées=${totalDettes.toFixed(0)}DA, Produits en stock: ${products.map(p => `${p.nom}(${p.stock_qty})`).join(', ')}. Réponds en français, de façon courte et utile.`;
+      // Build rich context — supports Darija, French, Arabic
+      const productsInfo = products.map(p => `${p.nom}(stock:${p.stock_qty}, cout:${p.prix_unitaire}DA)`).join(', ');
+      const ctx = `Tu es un assistant commercial intelligent et multilingue pour BRASTI, une application de gestion de production et vente de produits d'entretien au Maroc.
+
+Données en temps réel:
+- Chiffre d'affaires total: ${totalVentes.toFixed(0)} DA
+- Bénéfice net: ${benefice.toFixed(0)} DA  
+- Créances impayées: ${totalDettes.toFixed(0)} DA
+- Nombre de ventes: ${ventes.length}
+- Stock produits: ${productsInfo || 'aucun'}
+- Top produit: ${topProducts[0]?.nom || 'N/A'} (${topProducts[0]?.total?.toFixed(0) || 0} DA)
+
+IMPORTANT: Tu comprends et replies en Darija marocaine, français, arabe et anglais selon la langue de l'utilisateur. Sois concis, utile et professionnel. Si quelqu'un écrit en Darija (ex: "shhal rbhna", "wach kayn stock", "qadach dyal dyn"), réponds en Darija.`;
 
       let botContent = null;
 
-      // Try luminai first
+      // Try luminai (supports multilingual)
       try {
         const res = await fetch('https://luminai.my.id/', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content, prompt: ctx }),
-          signal: AbortSignal.timeout(8000)
+          signal: AbortSignal.timeout(10000)
         });
         if (res.ok) {
           const d = await res.json();
@@ -438,26 +482,32 @@ export default function App() {
         }
       } catch { /* try fallback */ }
 
-      // Fallback: simple rule-based answers
+      // Fallback: Darija + French smart answers
       if (!botContent) {
         const q = content.toLowerCase();
-        if (q.includes('bénéfice') || q.includes('profit') || q.includes('rbh'))
-          botContent = `Votre bénéfice net actuel est de ${benefice.toFixed(0)} DA.`;
-        else if (q.includes('vente') || q.includes('chiffre'))
-          botContent = `Total des ventes : ${totalVentes.toFixed(0)} DA.`;
-        else if (q.includes('dette') || q.includes('credit') || q.includes('npaye'))
-          botContent = `Montant impayé (crédit) : ${totalDettes.toFixed(0)} DA.`;
-        else if (q.includes('stock') || q.includes('produit'))
-          botContent = `Produits en stock : ${products.map(p => `${p.nom} (${p.stock_qty} unités)`).join(', ') || 'Aucun produit'}.`;
+        // Darija keywords
+        const isRbh = q.includes('rbh') || q.includes('ربح') || q.includes('bénéfice') || q.includes('profit') || q.includes('ganance');
+        const isVente = q.includes('bi3') || q.includes('بيع') || q.includes('vente') || q.includes('chiffre') || q.includes('ca');
+        const isDette = q.includes('dyn') || q.includes('دين') || q.includes('dette') || q.includes('credit') || q.includes('impaye') || q.includes('ma3tach');
+        const isStock = q.includes('stok') || q.includes('stock') || q.includes('produit') || q.includes('makhzen') || q.includes('مخزن') || q.includes('wach kayn');
+        const isHelp = q.includes('help') || q.includes('msa3da') || q.includes('مساعدة') || q.includes('kifach') || q.includes('comment');
+
+        if (isRbh)
+          botContent = `💰 Rbah nta: **${benefice.toFixed(0)} DA** 🎉\nC'est votre bénéfice net total.`;
+        else if (isVente)
+          botContent = `📊 Total dyal ventes: **${totalVentes.toFixed(0)} DA**\nNombre de transactions: ${ventes.length}.`;
+        else if (isDette)
+          botContent = `⚠️ Dyn li mzalin: **${totalDettes.toFixed(0)} DA**\nMontant impayé (crédit).`;
+        else if (isStock)
+          botContent = `📦 Stock dyalek:\n${products.map(p => `• ${p.nom}: ${p.stock_qty} unités`).join('\n') || 'Walou f stock'}`;
+        else if (isHelp)
+          botContent = `🤖 Ana assistant dyalek! Sou7al 3la:\n• "Shhal rbhna?" - bénéfice\n• "Shhal bi3na?" - ventes\n• "Wach kayn stock?" - inventaire\n• "Shhal dyal dyn?" - créances`;
         else
-          botContent = `Je suis votre assistant BRASTI. Ventes: ${totalVentes.toFixed(0)}DA | Bénéfice: ${benefice.toFixed(0)}DA | Dettes: ${totalDettes.toFixed(0)}DA.`;
+          botContent = `🤖 Mrhba! BRASTI dyalek:\n💰 Ventes: ${totalVentes.toFixed(0)} DA | Rbh: ${benefice.toFixed(0)} DA | Dyn: ${totalDettes.toFixed(0)} DA\nSou7al 3la ay 7aja! 😊`;
       }
 
-      // Show bot response in UI immediately
       const botMsg = { id: Date.now() + 1, sender: 'admin', content: botContent, is_bot: true };
       setMessages(prev => [...prev, botMsg]);
-
-      // Try to save bot response to DB (don't fail if column missing)
       supabase.from('messages').insert([{ user_id: session.user.id, sender: 'admin', content: botContent }]).then(() => {});
 
     } catch (err) {
@@ -541,21 +591,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* ── Notification Permission Banner ────────── */}
-      {showNotifBanner && (
-        <div style={{
-          position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)', zIndex: 9999,
-          background: 'var(--primary)', color: 'white', borderRadius: 20,
-          padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12,
-          boxShadow: '0 8px 30px rgba(79,70,229,0.4)', maxWidth: 380, width: 'calc(100% - 32px)',
-          animation: 'slideUp 0.4s ease-out'
-        }}>
-          <Bell size={20} style={{ flexShrink: 0 }} />
-          <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600 }}>Activer les notifications pour ne rien rater !</span>
-          <button onClick={requestNotifPermission} style={{ background:'white', color:'var(--primary)', border:'none', borderRadius:10, padding:'7px 14px', fontWeight:800, cursor:'pointer', fontSize:'0.82rem', flexShrink:0 }}>OK</button>
-          <button onClick={() => setShowNotifBanner(false)} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:'50%', width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'white', flexShrink:0 }}><X size={14} /></button>
-        </div>
-      )}
+
 
       {/* ── PWA Install Banner ─────────────────── */}
       {showInstallBanner && (
@@ -650,19 +686,24 @@ export default function App() {
             {products.length === 0 && <p style={{ color: 'var(--muted)', textAlign: 'center', padding: 40 }}>Aucun produit. Ajoutez votre premier produit !</p>}
             <div className="products-grid">
               {products.map(p => (
-                <div key={p.id} className="product-card" style={{ position: 'relative' }}>
-                  <div onClick={() => openModal('vente', { product_id: p.id, nom: p.nom, prix: +(p.prix_unitaire * 1.2).toFixed(2) })}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                      <b style={{ fontSize: '1rem' }}>{p.nom}</b>
-                      <span className={`badge ${p.stock_qty > 0 ? 'badge-success' : 'badge-danger'}`}>{p.stock_qty} unités</span>
-                    </div>
-                    <div style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Coût: <strong style={{ color: 'var(--primary)' }}>{p.prix_unitaire} DA</strong></div>
-                    <div style={{ marginTop: 10, fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>▶ Cliquer pour vendre</div>
+                <div key={p.id} className="product-card" style={{ position: 'relative' }} onClick={() => openEditProduct(p)}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <b style={{ fontSize: '1rem' }}>{p.nom}</b>
+                    <span className={`badge ${p.stock_qty > 0 ? 'badge-success' : 'badge-danger'}`}>{p.stock_qty} unités</span>
                   </div>
-                  <button className="icon-btn" onClick={(e) => { e.stopPropagation(); handleDelete('products', p.id); }} 
-                    style={{ position: 'absolute', bottom: 10, right: 10, color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }} title="Supprimer le produit">
-                    <Trash2 size={14} />
-                  </button>
+                  <div style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Coût: <strong style={{ color: 'var(--primary)' }}>{p.prix_unitaire} DA</strong></div>
+                  <div style={{ marginTop: 10, fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>✏️ Cliquer pour modifier</div>
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', gap: 6, marginTop: 12 }} onClick={e => e.stopPropagation()}>
+                    <button className="btn-primary" style={{ flex: 1, padding: '8px', fontSize: '0.78rem' }}
+                      onClick={(e) => { e.stopPropagation(); openModal('vente', { product_id: p.id, nom: p.nom, prix: +(p.prix_unitaire * 1.2).toFixed(2) }); }}>
+                      💸 Vendre
+                    </button>
+                    <button className="icon-btn" onClick={(e) => { e.stopPropagation(); handleDelete('products', p.id); }}
+                      style={{ color: '#ef4444', background: 'rgba(239,68,68,0.1)' }} title="Supprimer">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -904,10 +945,40 @@ export default function App() {
         <div className="modal-overlay" onClick={() => setModal(false)}>
           <div className="modal-content animate-enter" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{modalType === 'product' ? '📦 Nouveau Produit' : modalType === 'achat' ? '🛒 Achat' : '💸 Vente'}</h3>
+              <h3>{modalType === 'product' ? '📦 Nouveau Produit' : modalType === 'achat' ? '🛒 Achat' : modalType === 'editProduct' ? '✏️ Modifier le Produit' : '💸 Vente'}</h3>
               <button className="modal-close-btn" onClick={() => setModal(false)}><X size={18} /></button>
             </div>
-            <form onSubmit={handleSubmit}>
+
+            {/* ── EDIT PRODUCT FORM ─────────────────── */}
+            {modalType === 'editProduct' && (
+              <form onSubmit={handleUpdate}>
+                <div className="form-group">
+                  <label>Désignation</label>
+                  <input className="form-control" value={form.nom} required
+                    onChange={e => setForm(f => ({ ...f, nom: e.target.value }))} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="form-group">
+                    <label>Prix de revient (DA)</label>
+                    <input type="number" step="0.01" className="form-control" value={form.prix} required
+                      onChange={e => setForm(f => ({ ...f, prix: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label>Quantité en stock</label>
+                    <input type="number" min="0" className="form-control" value={form.quantite} required
+                      onChange={e => setForm(f => ({ ...f, quantite: e.target.value }))} />
+                  </div>
+                </div>
+                <div style={{ background: 'rgba(79,70,229,0.06)', borderRadius: 14, padding: '12px 18px', marginBottom: 16, fontSize: '0.88rem', color: 'var(--muted)' }}>
+                  📊 Valeur estimée du stock : <strong style={{ color: 'var(--primary)' }}>{(+form.prix * +form.quantite).toFixed(0)} DA</strong>
+                </div>
+                <button type="submit" className="btn-primary" style={{ width: '100%', padding: '15px' }} disabled={isSubmitting}>
+                  {isSubmitting ? '...' : '✅ Mettre à jour le stock'}
+                </button>
+              </form>
+            )}
+
+            <form onSubmit={handleSubmit} style={{ display: modalType === 'editProduct' ? 'none' : 'block' }}>
               {/* Smart Autocomplete Désignation */}
               <div className="form-group" style={{ position: 'relative' }}>
                 <label>Désignation</label>
