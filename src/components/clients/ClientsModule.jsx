@@ -35,24 +35,22 @@ export default function ClientsModule({ session, theme }) {
       // 2. Fetch clients table if it exists
       const { data: cData, error: cErr } = await supabase.from('clients').select('*').order('nom');
       if (cErr) {
-        if (cErr.code === '42P01' || cErr.message?.includes('not found')) {
-          setTableExists(false);
-          // Fallback: extract distinct clients from ventes table
-          const map = {};
-          (vData || []).forEach(v => {
-            if (v.client_nom && !map[v.client_nom]) {
-              map[v.client_nom] = {
-                id: v.client_id || v.client_nom,
-                nom: v.client_nom,
-                tel: v.client_tel || '',
-                email: '',
-                adresse: '',
-                notes: 'Client extrait des ventes'
-              };
-            }
-          });
-          setClients(Object.values(map));
-        }
+        setTableExists(false);
+        // Fallback: extract distinct clients from ventes table
+        const map = {};
+        (vData || []).forEach(v => {
+          if (v.client_nom && !map[v.client_nom]) {
+            map[v.client_nom] = {
+              id: v.client_id || v.client_nom,
+              nom: v.client_nom,
+              tel: v.client_tel || '',
+              email: '',
+              adresse: '',
+              notes: 'Client extrait des ventes'
+            };
+          }
+        });
+        setClients(Object.values(map));
       } else {
         setTableExists(true);
         // Combine clients from table with any distinct clients from sales

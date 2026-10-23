@@ -574,20 +574,20 @@ Chiffre d'affaires: ${totalVentes.toFixed(0)} DA | Bénéfice: ${benefice.toFixe
      ALL APP TABS LIST
   ════════════════════════════════════════════ */
   const TABS_LIST = [
-    { id: 'dashboard',   label: '🏠 Dashboard' },
-    { id: 'clients',     label: '👥 Clients & Dettes' },
-    { id: 'produits',    label: '🏷️ Produits & Codes-barres' },
-    { id: 'stock',       label: '📦 Stock' },
-    { id: 'production',  label: '🏭 Production & Recettes' },
-    { id: 'ventes',      label: '🛒 Ventes & Factures' },
-    { id: 'achats',      label: '🚚 Achats & Fournisseurs' },
-    { id: 'reglements',  label: '💳 Règlements' },
-    { id: 'caisse',      label: '💰 Caisse & Dépenses' },
-    { id: 'apports',     label: '📈 Apports & Prêts' },
-    { id: 'personnel',   label: '👷 Personnel & Salaires' },
-    { id: 'stats',       label: '📊 Stats' },
-    { id: 'chat',        label: '🤖 AI Chat' },
-    { id: 'dev',         label: '👨‍💻 Dev' },
+    { id: 'dashboard',   label: 'Dashboard',   icon: '🏠' },
+    { id: 'clients',     label: 'Clients',     icon: '👥' },
+    { id: 'produits',    label: 'Produits',    icon: '🏷️' },
+    { id: 'stock',       label: 'Stock',       icon: '📦' },
+    { id: 'production',  label: 'Production',  icon: '🏭' },
+    { id: 'ventes',      label: 'Ventes',      icon: '🛒' },
+    { id: 'achats',      label: 'Achats',      icon: '🚚' },
+    { id: 'reglements',  label: 'Règlements',  icon: '💳' },
+    { id: 'caisse',      label: 'Caisse',      icon: '💰' },
+    { id: 'apports',     label: 'Apports',     icon: '📈' },
+    { id: 'personnel',   label: 'Personnel',   icon: '👷' },
+    { id: 'stats',       label: 'Stats',       icon: '📊' },
+    { id: 'chat',        label: 'AI Chat',     icon: '🤖' },
+    { id: 'dev',         label: 'Dev',         icon: '👨‍💻' },
   ];
 
   /* ═══════════════════════════════════════════
@@ -641,19 +641,21 @@ Chiffre d'affaires: ${totalVentes.toFixed(0)} DA | Bénéfice: ${benefice.toFixe
         </div>
       )}
 
-      {/* Nav Tabs Bar */}
-      <nav className="nav-tabs" style={{ display: 'flex', overflowX: 'auto', gap: 6, padding: '6px', marginBottom: 24 }}>
-        {TABS_LIST.map(tab => (
-          <button 
-            key={tab.id} 
-            className={`nav-tab${activeTab === tab.id ? ' active' : ''}`} 
-            onClick={() => setActiveTab(tab.id)}
-            style={{ whiteSpace: 'nowrap' }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
+      {/* Nav Tabs Bar (Scrollable Pill Navigation) */}
+      <div className="nav-tabs-wrapper">
+        <nav className="nav-tabs">
+          {TABS_LIST.map(tab => (
+            <button 
+              key={tab.id} 
+              className={`nav-tab${activeTab === tab.id ? ' active' : ''}`} 
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <span>{tab.icon}</span>
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </nav>
+      </div>
 
       {/* Content */}
       <main id="app-content">
