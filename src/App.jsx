@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Download, Sun, RefreshCw, LogOut, Send, X, Plus, Printer, Mail, Lock, TrendingUp, AlertTriangle, ShoppingBag, Bell, Smartphone, Trash2 } from 'lucide-react';
+import { 
+  Download, Sun, RefreshCw, LogOut, Send, X, Plus, Printer, Mail, Lock, 
+  TrendingUp, AlertTriangle, ShoppingBag, Bell, Smartphone, Trash2,
+  Users, Package, Factory, ShoppingCart, Truck, Wallet, UserCheck, DollarSign, Layers
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js';
 import { Line } from 'react-chartjs-2';
@@ -7,6 +11,18 @@ import { supabase, pingSupabase } from './supabaseClient';
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import Swal from 'sweetalert2';
+
+// ── NOUVEAUX MODULES ERP ──────────────────────────────────────────
+import ClientsModule    from './components/clients/ClientsModule';
+import ProduitsModule   from './components/produits/ProduitsModule';
+import StockModule      from './components/stock/StockModule';
+import ProductionModule from './components/production/ProductionModule';
+import VentesModule     from './components/ventes/VentesModule';
+import AchatsModule     from './components/achats/AchatsModule';
+import ReglementsModule from './components/reglements/ReglementsModule';
+import CaisseModule     from './components/caisse/CaisseModule';
+import ApportsModule    from './components/apports/ApportsModule';
+import PersonnelModule  from './components/personnel/PersonnelModule';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
@@ -32,6 +48,7 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [productSearch, setProductSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isBotTyping, setIsBotTyping] = useState(false);
   const chatEndRef = useRef(null);
 
   const [form, setForm] = useState({
@@ -46,16 +63,14 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  /* ── Supabase Keep-Alive (prevent free tier auto-pause) ──── */
+  /* ── Supabase Keep-Alive ────────────────── */
   useEffect(() => {
-    // Ping Supabase every 5 days (7 days = pause, so 5 is safe)
     const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
     const interval = setInterval(async () => {
       const ok = await pingSupabase();
-      console.log(`[Keep-Alive] Supabase ping: ${ok ? '✅ actif' : '❌ erreur'}`);
+      console.log(`[Keep-Alive] Supabase: ${ok ? 'actif' : 'erreur'}`);
     }, FIVE_DAYS_MS);
-    // Also ping on app load to reset inactivity timer
-    pingSupabase().then(ok => console.log(`[Keep-Alive] Démarrage - Supabase: ${ok ? 'actif' : 'erreur'}`));
+    pingSupabase();
     return () => clearInterval(interval);
   }, []);
 
@@ -72,13 +87,15 @@ export default function App() {
   const installApp = async () => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
+    await deferredPrompt.userChoice;
     setDeferredPrompt(null); setShowInstallBanner(false);
   };
+
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('brasti-theme', theme);
   }, [theme]);
+
   useEffect(() => { localStorage.setItem('brasti-tab', activeTab); }, [activeTab]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
@@ -86,21 +103,28 @@ export default function App() {
   const fetchData = async () => {
     if (!session) return;
     setLoading(true);
+    setDbError(null);
     try {
-      const [{ data: a }, { data: v }, { data: p }, { data: m }] = await Promise.all([
+      const [{ data: a, error: ea }, { data: v, error: ev }, { data: p, error: ep }, { data: m, error: em }] = await Promise.all([
         supabase.from('achats').select('*').order('date', { ascending: false }),
         supabase.from('ventes').select('*').order('date', { ascending: false }),
         supabase.from('products').select('*').order('nom'),
         supabase.from('messages').select('*').order('created_at'),
       ]);
+      if (ea || ev || ep) throw (ea || ev || ep);
       setAchats(a || []); setVentes(v || []); setProducts(p || []); setMessages(m || []);
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+    } catch (e) { 
+      console.error(e);
+      setDbError(e.message || 'Erreur connexion');
+    } finally { 
+      setLoading(false); 
+    }
   };
   useEffect(() => { fetchData(); }, [session]);
 
   /* ── Computed stats ──────────────────────── */
-  const totalVentes  = useMemo(() => ventes.reduce((s, v) => s + v.prix * v.quantite, 0), [ventes]);
-  const totalDettes  = useMemo(() => ventes.filter(v => !v.est_paye).reduce((s, v) => s + v.prix * v.quantite, 0), [ventes]);
+  const totalVentes  = useMemo(() => ventes.reduce((s, v) => s + (v.total_prix || v.prix * v.quantite || 0), 0), [ventes]);
+  const totalDettes  = useMemo(() => ventes.filter(v => !v.est_paye).reduce((s, v) => s + (v.total_prix || v.prix * v.quantite || 0), 0), [ventes]);
   const benefice     = useMemo(() => ventes.reduce((s, v) => {
     const p = products.find(p => p.id === v.product_id);
     return s + (v.prix - (p ? p.prix_unitaire : 0)) * v.quantite;
@@ -109,8 +133,9 @@ export default function App() {
   const topProducts = useMemo(() => {
     const map = {};
     ventes.forEach(v => {
+      const tot = v.total_prix || (v.prix * v.quantite);
       if (!map[v.nom]) map[v.nom] = { nom: v.nom, total: 0, qty: 0 };
-      map[v.nom].total += v.prix * v.quantite;
+      map[v.nom].total += tot;
       map[v.nom].qty   += v.quantite;
     });
     return Object.values(map).sort((a, b) => b.total - a.total);
@@ -126,7 +151,7 @@ export default function App() {
       if (period === 'year')  return d.getFullYear() === now.getFullYear();
       return true;
     });
-    const ca = filtered.reduce((s, v) => s + v.prix * v.quantite, 0);
+    const ca = filtered.reduce((s, v) => s + (v.total_prix || v.prix * v.quantite || 0), 0);
     const ben = filtered.reduce((s, v) => {
       const p = products.find(p => p.id === v.product_id);
       return s + (v.prix - (p ? p.prix_unitaire : 0)) * v.quantite;
@@ -147,93 +172,115 @@ export default function App() {
       // Header
       doc.setFillColor(79, 70, 229); doc.rect(0, 0, W, 44, 'F');
 
-      // Logo in white rounded box
       if (logoDataUrl) {
         doc.setFillColor(255, 255, 255);
         doc.roundedRect(12, 7, 28, 28, 4, 4, 'F');
         doc.addImage(logoDataUrl, 'PNG', 14, 9, 24, 24);
       }
-      const textX = logoDataUrl ? 46 : 20;
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(255,255,255);
-      doc.text('BRASTI - Rapport Complet', textX, 22);
-      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-      doc.text(`Genere le ${today}`, textX, 32);
 
-      let y = 56;
-      const pageH = doc.internal.pageSize.getHeight();
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(17);
+      doc.text('BRASTI - RAPPORT GENERAL', logoDataUrl ? 46 : 14, 20);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+      doc.text(`Genere le : ${today}  |  Production & Vente`, logoDataUrl ? 46 : 14, 30);
 
-      const checkPage = () => {
-        if (y > pageH - 30) {
-          doc.addPage();
-          doc.setFillColor(79, 70, 229); doc.rect(0, 0, W, 10, 'F');
-          y = 20;
-        }
-      };
+      const kpis = [
+        { label: 'CHIFFRE AFFAIRES', val: `${totalVentes.toFixed(0)} DA`, color: [79, 70, 229] },
+        { label: 'BENEFICE NET', val: `${benefice.toFixed(0)} DA`, color: [16, 185, 129] },
+        { label: 'CREANCES (NON PAYES)', val: `${totalDettes.toFixed(0)} DA`, color: [239, 68, 68] },
+        { label: 'TOTAL VENTES', val: `${ventes.length}`, color: [14, 165, 233] },
+      ];
 
-      const section = (title) => {
-        checkPage();
-        doc.setFillColor(240, 240, 252); doc.rect(15, y - 6, W - 30, 10, 'F');
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(79, 70, 229);
-        doc.text(title, 18, y); y += 12;
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 41, 59);
-      };
-
-      const row = (label, value, r, g, b) => {
-        checkPage();
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-        doc.setTextColor(100, 116, 139); doc.text(String(label).slice(0, 60), 20, y);
-        if (r !== undefined) doc.setTextColor(r, g, b);
-        else doc.setTextColor(30, 41, 59);
-        doc.setFont('helvetica', 'bold');
-        doc.text(String(value), W - 20, y, { align: 'right' });
-        doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 41, 59);
-        doc.setDrawColor(230, 235, 245); doc.line(20, y + 2, W - 20, y + 2);
-        y += 10;
-      };
-
-      section('Resume Global');
-      row('Total Ventes', `${totalVentes.toFixed(0)} DA`, 30, 41, 59);
-      row('Benefice Net', `${benefice.toFixed(0)} DA`, 16, 122, 87);
-      row('Non Payes (Credit)', `${totalDettes.toFixed(0)} DA`, 185, 28, 28);
-      row('Nombre de Transactions', ventes.length);
-      y += 6;
-
-      section('Statistiques par Periode');
-      row('Cette semaine - CA', `${week.ca.toFixed(0)} DA`);
-      row('Cette semaine - Benefice', `${week.ben.toFixed(0)} DA`, 16, 122, 87);
-      row(`Ce mois (${format(new Date(),'MMMM yyyy')}) - CA`, `${month.ca.toFixed(0)} DA`);
-      row(`Ce mois - Benefice`, `${month.ben.toFixed(0)} DA`, 16, 122, 87);
-      row(`Cette annee ${new Date().getFullYear()} - CA`, `${year.ca.toFixed(0)} DA`);
-      row(`Cette annee - Benefice`, `${year.ben.toFixed(0)} DA`, 16, 122, 87);
-      y += 6;
-
-      section('Top Produits Vendus');
-      if (topProducts.length === 0) row('Aucune vente enregistree', '-');
-      topProducts.slice(0, 8).forEach((p, i) => row(`${i + 1}. ${p.nom}  (x${p.qty} unites)`, `${p.total.toFixed(0)} DA`, 79, 70, 229));
-      y += 6;
-
-      section('Etat du Stock');
-      if (products.length === 0) row('Aucun produit', '-');
-      products.forEach(p => row(`${p.nom}`, `${p.stock_qty} unites  |  Cout: ${p.prix_unitaire} DA`));
-      y += 6;
-
-      section('Dernieres Ventes (10 recentes)');
-      if (ventes.length === 0) row('Aucune vente', '-');
-      ventes.slice(0, 10).forEach(v => {
-        const status = v.est_paye ? 'Paye' : 'Credit';
-        row(`${v.date || '--'} | ${v.nom} | ${v.client_nom || 'Client'}`, `${(v.prix * v.quantite).toFixed(0)} DA [${status}]`);
+      const cardW = (W - 28 - 9) / 4;
+      kpis.forEach((k, i) => {
+        const x = 14 + i * (cardW + 3);
+        doc.setFillColor(248, 250, 252); doc.roundedRect(x, 50, cardW, 22, 2, 2, 'F');
+        doc.setFillColor(...k.color); doc.rect(x, 50, cardW, 2, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...k.color);
+        doc.text(k.val, x + cardW / 2, 62, { align: 'center' });
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(100, 116, 139);
+        doc.text(k.label, x + cardW / 2, 68, { align: 'center' });
       });
 
-      // Footer on last page
-      const lastY = doc.internal.pageSize.getHeight() - 15;
-      doc.setFillColor(248, 250, 252); doc.rect(0, lastY - 6, W, 20, 'F');
-      doc.setFontSize(8); doc.setTextColor(100, 116, 139);
-      doc.text('BRASTI - brasti.netlify.app | Developpe par Hamza Amirni', W / 2, lastY, { align: 'center' });
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(30, 41, 59);
+      doc.text('PERFORMANCES PAR PERIODE', 14, 82);
 
-      doc.save(`Rapport_Brasti_${today.replace(/\//g, '-')}.pdf`);
+      const periods = [
+        { label: '7 Derniers Jours', data: week, c: [139, 92, 246] },
+        { label: 'Ce Mois', data: month, c: [14, 165, 233] },
+        { label: 'Cette Annee', data: year, c: [16, 185, 129] },
+      ];
+      const pW = (W - 28 - 6) / 3;
+      periods.forEach((p, i) => {
+        const x = 14 + i * (pW + 3);
+        doc.setFillColor(248, 250, 252); doc.roundedRect(x, 86, pW, 28, 2, 2, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...p.c);
+        doc.text(p.label, x + 5, 93);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(30, 41, 59);
+        doc.text(`CA : ${p.data.ca.toFixed(0)} DA`, x + 5, 100);
+        doc.text(`Benefice : ${p.data.ben.toFixed(0)} DA`, x + 5, 106);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`${p.data.nb} transaction(s)`, x + 5, 111);
+      });
+
+      let y = 124;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(30, 41, 59);
+      doc.text('HISTORIQUE DES VENTES', 14, y);
+      y += 5;
+
+      doc.setFillColor(241, 245, 249); doc.rect(14, y, W - 28, 7, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(71, 85, 105);
+      doc.text('DATE', 17, y + 5);
+      doc.text('CLIENT', 42, y + 5);
+      doc.text('ARTICLE', 90, y + 5);
+      doc.text('QTE', 142, y + 5, { align: 'center' });
+      doc.text('TOTAL (DA)', 168, y + 5, { align: 'right' });
+      doc.text('STATUT', W - 17, y + 5, { align: 'right' });
+      y += 8;
+
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+      ventes.slice(0, 30).forEach((v, idx) => {
+        if (y > 270) {
+          doc.addPage();
+          y = 15;
+          doc.setFillColor(241, 245, 249); doc.rect(14, y, W - 28, 7, 'F');
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(71, 85, 105);
+          doc.text('DATE', 17, y + 5);
+          doc.text('CLIENT', 42, y + 5);
+          doc.text('ARTICLE', 90, y + 5);
+          doc.text('QTE', 142, y + 5, { align: 'center' });
+          doc.text('TOTAL (DA)', 168, y + 5, { align: 'right' });
+          doc.text('STATUT', W - 17, y + 5, { align: 'right' });
+          y += 8;
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+        }
+        if (idx % 2 === 0) {
+          doc.setFillColor(250, 250, 250); doc.rect(14, y - 1, W - 28, 6.5, 'F');
+        }
+        doc.setTextColor(30, 41, 59);
+        doc.text(v.date || '', 17, y + 4);
+        doc.text((v.client_nom || 'Client').substring(0, 22), 42, y + 4);
+        doc.text((v.nom || '').substring(0, 24), 90, y + 4);
+        doc.text(`${v.quantite}`, 142, y + 4, { align: 'center' });
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${(v.total_prix || v.prix * v.quantite).toFixed(0)}`, 168, y + 4, { align: 'right' });
+        doc.setFont('helvetica', 'normal');
+
+        if (v.est_paye) {
+          doc.setTextColor(21, 128, 61); doc.text('Paye', W - 17, y + 4, { align: 'right' });
+        } else {
+          doc.setTextColor(185, 28, 28); doc.text('Credit', W - 17, y + 4, { align: 'right' });
+        }
+        y += 6.5;
+      });
+
+      doc.setFillColor(245, 243, 255); doc.rect(0, 285, W, 12, 'F');
+      doc.setFontSize(7); doc.setTextColor(100, 116, 139);
+      doc.text('BRASTI Production & Vente - Rapport officiel', W / 2, 292, { align: 'center' });
+
+      doc.save(`Rapport_Brasti_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
     };
 
-    // Load logo then build PDF
     try {
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -248,102 +295,66 @@ export default function App() {
     } catch { buildReport(null); }
   };
 
-
-  /* ── Invoice PDF ─────────────────────────── */
+  /* ── Single Sale Invoice PDF ─────────────── */
   const generateInvoice = (v) => {
     const doc = new jsPDF();
     const pageW = doc.internal.pageSize.getWidth();
-    const invoiceDate = v.date || format(new Date(), 'dd/MM/yyyy');
-    const invoiceNum = `INV-${v.id ? v.id.slice(0, 8).toUpperCase() : Date.now()}`;
+    const today = format(new Date(), 'dd/MM/yyyy');
+    const invoiceNum = `FAC-${format(new Date(), 'yyyyMM')}-${(v.id || '').substring(0, 4).toUpperCase() || '0001'}`;
 
     const buildPdf = (logoDataUrl) => {
-      // ── HEADER BAR ───────────────────────────────────────
-      doc.setFillColor(79, 70, 229);
-      doc.rect(0, 0, pageW, 40, 'F');
-
-      // Logo in white rounded box
+      doc.setFillColor(79, 70, 229); doc.rect(0, 0, pageW, 36, 'F');
       if (logoDataUrl) {
         doc.setFillColor(255, 255, 255);
-        doc.roundedRect(12, 7, 26, 26, 4, 4, 'F');
-        doc.addImage(logoDataUrl, 'PNG', 14, 9, 22, 22);
+        doc.roundedRect(14, 5, 26, 26, 3, 3, 'F');
+        doc.addImage(logoDataUrl, 'PNG', 16, 7, 22, 22);
       }
-
-      const textX = logoDataUrl ? 44 : 20;
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(255, 255, 255);
-      doc.text('BRASTI', textX, 20);
-      doc.setFontSize(8); doc.setFont('helvetica', 'normal');
-      doc.text('Production & Vente - Produits d\'entretien', textX, 29);
-
-      doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
       doc.text('FACTURE', pageW - 20, 18, { align: 'right' });
-      doc.setFontSize(8); doc.setFont('helvetica', 'normal');
-      doc.text(invoiceNum, pageW - 20, 27, { align: 'right' });
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+      doc.text(`N : ${invoiceNum}`, pageW - 20, 25, { align: 'right' });
+      doc.text(`Date : ${today}`, pageW - 20, 31, { align: 'right' });
 
-      // ── CLIENT & INVOICE INFO ────────────────────────────
-      doc.setTextColor(100, 116, 139); doc.setFontSize(8);
-      doc.text('FACTURE A :', 20, 52);
-      doc.text('N FACTURE :', pageW - 80, 52);
-      doc.text('DATE :', pageW - 80, 60);
-      doc.text('STATUT :', pageW - 80, 68);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+      doc.text('BRASTI', logoDataUrl ? 44 : 20, 17);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+      doc.text('Production & Vente de produits de nettoyage', logoDataUrl ? 44 : 20, 24);
 
-      doc.setTextColor(30, 41, 59); doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
-      doc.text(v.client_nom || 'Client Anonyme', 20, 61);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(100, 116, 139);
-      if (v.client_tel) doc.text(`Tel : ${v.client_tel}`, 20, 69);
+      // Client block
+      doc.setFillColor(248, 250, 252); doc.roundedRect(20, 44, pageW - 40, 24, 2, 2, 'F');
+      doc.setTextColor(30, 41, 59); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+      doc.text('Facture a :', 26, 52);
+      doc.setFontSize(10.5); doc.text(v.client_nom || 'Client Particulier', 26, 59);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 116, 139);
+      if (v.client_tel) doc.text(`Tel : ${v.client_tel}`, 26, 65);
 
-      doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 41, 59); doc.setFontSize(9);
-      doc.text(invoiceNum, pageW - 20, 52, { align: 'right' });
-      doc.text(invoiceDate, pageW - 20, 60, { align: 'right' });
-      if (v.est_paye) { doc.setTextColor(21, 128, 61); doc.text('PAYE', pageW - 20, 68, { align: 'right' }); }
-      else { doc.setTextColor(185, 28, 28); doc.text('CREDIT (non paye)', pageW - 20, 68, { align: 'right' }); }
+      // Table
+      doc.setFillColor(241, 245, 249); doc.rect(20, 75, pageW - 40, 9, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(71, 85, 105);
+      doc.text('DESCRIPTION', 26, 81);
+      doc.text('QTE', 110, 81, { align: 'center' });
+      doc.text('PRIX UNIT.', 145, 81, { align: 'center' });
+      doc.text('TOTAL', pageW - 24, 81, { align: 'right' });
 
-      // ── TABLE HEADER ─────────────────────────────────────
-      doc.setDrawColor(229, 231, 235); doc.setLineWidth(0.5);
-      doc.line(20, 78, pageW - 20, 78);
-      doc.setFillColor(245, 243, 255); doc.rect(20, 82, pageW - 40, 10, 'F');
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(79, 70, 229);
-      doc.text('ARTICLE', 24, 89);
-      doc.text('QTE', 115, 89, { align: 'center' });
-      doc.text('PRIX UNIT.', 145, 89, { align: 'center' });
-      doc.text('TOTAL', pageW - 24, 89, { align: 'right' });
-
-      // ── PRODUCT ROW ──────────────────────────────────────
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(30, 41, 59);
-      doc.text(v.nom || '-', 24, 104);
-      doc.text(String(v.quantite), 115, 104, { align: 'center' });
-      doc.text(`${(+v.prix).toFixed(2)} DA`, 145, 104, { align: 'center' });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(30, 41, 59);
+      doc.text(v.nom, 26, 94);
+      doc.text(`${v.quantite}`, 110, 94, { align: 'center' });
+      doc.text(`${(+v.prix).toFixed(2)} DA`, 145, 94, { align: 'center' });
       doc.setFont('helvetica', 'bold');
-      doc.text(`${(v.prix * v.quantite).toFixed(2)} DA`, pageW - 24, 104, { align: 'right' });
-      doc.setDrawColor(229, 231, 235); doc.line(20, 110, pageW - 20, 110);
+      doc.text(`${(v.prix * v.quantite).toFixed(2)} DA`, pageW - 24, 94, { align: 'right' });
 
-      // ── TOTAL BOX ────────────────────────────────────────
-      doc.setFillColor(79, 70, 229); doc.setDrawColor(79, 70, 229);
-      doc.roundedRect(pageW - 90, 116, 70, 18, 3, 3, 'F');
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 255, 255);
-      doc.text('TOTAL', pageW - 55, 123, { align: 'center' });
-      doc.text(`${(v.prix * v.quantite).toFixed(2)} DA`, pageW - 55, 130, { align: 'center' });
-
-      doc.setFontSize(9); doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal');
-      doc.text(`Sous-total : ${(v.prix * v.quantite).toFixed(2)} DA`, 20, 124);
-      doc.text('TVA : Hors taxes', 20, 132);
-
-      // ── PAYMENT NOTE ─────────────────────────────────────
-      doc.setDrawColor(229, 231, 235); doc.line(20, 146, pageW - 20, 146);
-      doc.setFontSize(8); doc.setTextColor(100, 116, 139);
-      doc.text('Note de paiement :', 20, 154);
-      doc.setTextColor(30, 41, 59);
-      doc.text(v.est_paye ? 'Paiement recu - Aucun montant du.' : `Montant a regler : ${(v.prix * v.quantite).toFixed(2)} DA`, 20, 161);
-
-      // ── FOOTER ───────────────────────────────────────────
-      doc.setFillColor(245, 243, 255); doc.rect(0, 275, pageW, 22, 'F');
-      doc.setFontSize(8); doc.setTextColor(100, 116, 139);
-      doc.text('Merci pour votre confiance ! - BRASTI Production & Vente', pageW / 2, 283, { align: 'center' });
-      doc.text('brasti.netlify.app', pageW / 2, 290, { align: 'center' });
+      // Total Box
+      doc.setFillColor(79, 70, 229);
+      doc.roundedRect(pageW - 90, 110, 70, 18, 3, 3, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(255, 255, 255);
+      doc.text('TOTAL A PAYER', pageW - 55, 117, { align: 'center' });
+      doc.setFontSize(12);
+      doc.text(`${(v.prix * v.quantite).toFixed(2)} DA`, pageW - 55, 124, { align: 'center' });
 
       doc.save(`Facture_${v.client_nom || 'Client'}_${invoiceNum}.pdf`);
     };
 
-    // Load logo then build PDF
     try {
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -358,15 +369,19 @@ export default function App() {
     } catch { buildPdf(null); }
   };
 
-
   /* ── Auth submit ─────────────────────────── */
   const handleAuth = async (e) => {
     e.preventDefault(); setAuthLoad(true); setAuthError('');
-    const { error } = authMode === 'login'
-      ? await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword })
-      : await supabase.auth.signUp({ email: authEmail, password: authPassword });
-    if (error) setAuthError(error.message);
-    setAuthLoad(false);
+    try {
+      const { error } = authMode === 'login'
+        ? await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword })
+        : await supabase.auth.signUp({ email: authEmail, password: authPassword });
+      if (error) setAuthError(error.message);
+    } catch (err) {
+      setAuthError('Erreur de connexion');
+    } finally {
+      setAuthLoad(false);
+    }
   };
 
   /* ── Form submit ─────────────────────────── */
@@ -392,22 +407,21 @@ export default function App() {
       fetchData();
       Swal.fire({ icon: 'success', title: 'Enregistré !', timer: 900, showConfirmButton: false });
     } catch (err) {
-      console.error('Insert error:', err);
       setModal(false);
-      Swal.fire('Erreur', err?.message || 'Vérifiez votre connexion ou la base de données', 'error');
+      Swal.fire('Erreur', err?.message || 'Erreur enregistrement', 'error');
+    } finally { 
+      setSubmit(false); 
     }
-    finally { setSubmit(false); }
   };
 
   /* ── Delete handle ───────────────────────── */
   const handleDelete = async (table, id) => {
     const { isConfirmed } = await Swal.fire({
-      title: 'Êtes-vous sûr ?',
+      title: 'Supprimer cet élément ?',
       text: "Cette action est irréversible !",
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
-      cancelButtonColor: '#94a3b8',
       confirmButtonText: 'Oui, supprimer',
       cancelButtonText: 'Annuler'
     });
@@ -440,105 +454,75 @@ export default function App() {
     } catch (err) {
       setModal(false);
       Swal.fire('Erreur', err?.message || 'Erreur mise à jour', 'error');
-    } finally { setSubmit(false); }
+    } finally { 
+      setSubmit(false); 
+    }
   };
 
-  /* ── Open edit product modal ─────────────── */
   const openEditProduct = (p) => {
     setForm({ nom: p.nom, quantite: p.stock_qty, prix: p.prix_unitaire, product_id: p.id, client_nom: '', client_tel: '', est_paye: true });
     setModalType('editProduct'); setModal(true);
   };
 
-  /* ── AI Chat ─────────────────────────────── */
-  const [isBotTyping, setIsBotTyping] = useState(false);
-
+  /* ── AI Chat (Darija Assistant) ───────────── */
   const handleSend = async () => {
     if (!chatInput.trim() || isBotTyping) return;
     const content = chatInput.trim();
     setChatInput('');
 
-    // Show user message immediately in UI
     const userMsg = { id: Date.now(), sender: 'customer', content };
     setMessages(prev => [...prev, userMsg]);
-
-    // Save to DB (optional, don't block UI)
     supabase.from('messages').insert([{ user_id: session.user.id, sender: 'customer', content }]).then(() => {});
 
     setIsBotTyping(true);
     try {
-      // Build rich context — supports Darija, French, Arabic
       const productsInfo = products.map(p => `${p.nom}(stock:${p.stock_qty}, cout:${p.prix_unitaire}DA)`).join(', ');
-      const ctx = `Tu es un assistant commercial intelligent et multilingue pour BRASTI, une application de gestion de production et vente de produits d'entretien au Maroc.
-
-Données en temps réel:
-- Chiffre d'affaires total: ${totalVentes.toFixed(0)} DA
-- Bénéfice net: ${benefice.toFixed(0)} DA  
-- Créances impayées: ${totalDettes.toFixed(0)} DA
-- Nombre de ventes: ${ventes.length}
-- Stock produits: ${productsInfo || 'aucun'}
-- Top produit: ${topProducts[0]?.nom || 'N/A'} (${topProducts[0]?.total?.toFixed(0) || 0} DA)
-
-IMPORTANT: Tu comprends et replies en Darija marocaine, français, arabe et anglais selon la langue de l'utilisateur. Sois concis, utile et professionnel. Si quelqu'un écrit en Darija (ex: "shhal rbhna", "wach kayn stock", "qadach dyal dyn"), réponds en Darija.`;
+      const ctx = `Tu es un assistant commercial intelligent et multilingue pour BRASTI, une application de gestion de production et vente au Maroc.
+Chiffre d'affaires: ${totalVentes.toFixed(0)} DA | Bénéfice: ${benefice.toFixed(0)} DA | Dettes: ${totalDettes.toFixed(0)} DA | Nb ventes: ${ventes.length} | Stock: ${productsInfo || 'aucun'}`;
 
       let botContent = null;
-
-      // Try luminai (supports multilingual)
       try {
         const res = await fetch('https://luminai.my.id/', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content, prompt: ctx }),
-          signal: AbortSignal.timeout(10000)
+          signal: AbortSignal.timeout(8000)
         });
         if (res.ok) {
           const d = await res.json();
           botContent = d.result || d.response || d.message || null;
         }
-      } catch { /* try fallback */ }
+      } catch {}
 
-      // Fallback: Darija + French smart answers
       if (!botContent) {
         const q = content.toLowerCase();
-        // Darija keywords
-        const isRbh = q.includes('rbh') || q.includes('ربح') || q.includes('bénéfice') || q.includes('profit') || q.includes('ganance');
-        const isVente = q.includes('bi3') || q.includes('بيع') || q.includes('vente') || q.includes('chiffre') || q.includes('ca');
-        const isDette = q.includes('dyn') || q.includes('دين') || q.includes('dette') || q.includes('credit') || q.includes('impaye') || q.includes('ma3tach');
-        const isStock = q.includes('stok') || q.includes('stock') || q.includes('produit') || q.includes('makhzen') || q.includes('مخزن') || q.includes('wach kayn');
-        const isHelp = q.includes('help') || q.includes('msa3da') || q.includes('مساعدة') || q.includes('kifach') || q.includes('comment');
-
-        if (isRbh)
-          botContent = `💰 Rbah nta: **${benefice.toFixed(0)} DA** 🎉\nC'est votre bénéfice net total.`;
-        else if (isVente)
-          botContent = `📊 Total dyal ventes: **${totalVentes.toFixed(0)} DA**\nNombre de transactions: ${ventes.length}.`;
-        else if (isDette)
-          botContent = `⚠️ Dyn li mzalin: **${totalDettes.toFixed(0)} DA**\nMontant impayé (crédit).`;
-        else if (isStock)
+        if (q.includes('rbh') || q.includes('ربح') || q.includes('bénéfice'))
+          botContent = `💰 Rbah dyalek: **${benefice.toFixed(0)} DA** 🎉`;
+        else if (q.includes('bi3') || q.includes('بيع') || q.includes('vente'))
+          botContent = `📊 Total dyal ventes: **${totalVentes.toFixed(0)} DA** (Transactions: ${ventes.length})`;
+        else if (q.includes('dyn') || q.includes('دين') || q.includes('dette') || q.includes('credit'))
+          botContent = `⚠️ Dyn li baqi: **${totalDettes.toFixed(0)} DA**`;
+        else if (q.includes('stok') || q.includes('stock') || q.includes('makhzen'))
           botContent = `📦 Stock dyalek:\n${products.map(p => `• ${p.nom}: ${p.stock_qty} unités`).join('\n') || 'Walou f stock'}`;
-        else if (isHelp)
-          botContent = `🤖 Ana assistant dyalek! Sou7al 3la:\n• "Shhal rbhna?" - bénéfice\n• "Shhal bi3na?" - ventes\n• "Wach kayn stock?" - inventaire\n• "Shhal dyal dyn?" - créances`;
         else
-          botContent = `🤖 Mrhba! BRASTI dyalek:\n💰 Ventes: ${totalVentes.toFixed(0)} DA | Rbh: ${benefice.toFixed(0)} DA | Dyn: ${totalDettes.toFixed(0)} DA\nSou7al 3la ay 7aja! 😊`;
+          botContent = `🤖 Mrhba bik! Ventes: ${totalVentes.toFixed(0)} DA | Bénéfice: ${benefice.toFixed(0)} DA | Dettes: ${totalDettes.toFixed(0)} DA`;
       }
 
       const botMsg = { id: Date.now() + 1, sender: 'admin', content: botContent, is_bot: true };
       setMessages(prev => [...prev, botMsg]);
       supabase.from('messages').insert([{ user_id: session.user.id, sender: 'admin', content: botContent }]).then(() => {});
-
-    } catch (err) {
-      console.error('Chat error:', err);
-      setMessages(prev => [...prev, { id: Date.now() + 1, sender: 'admin', content: '⚠ Service AI temporairement indisponible.', is_bot: true }]);
+    } catch {
+      setMessages(prev => [...prev, { id: Date.now() + 1, sender: 'admin', content: 'Service AI temporairement indisponible.', is_bot: true }]);
     } finally {
       setIsBotTyping(false);
     }
   };
 
-  /* ── Quick re-sell ───────────────────────── */
   const openQuickSell = (v) => {
     setForm(f => ({ ...f, client_nom: v.client_nom || '', client_tel: v.client_tel || '', nom: '', product_id: '', est_paye: true }));
     setModalType('vente'); setModal(true);
   };
 
-  /* ── Reset form ──────────────────────────── */
   const openModal = (type, extra = {}) => {
     setForm({ nom: '', quantite: 1, prix: 1, product_id: '', client_nom: '', client_tel: '', est_paye: true, ...extra });
     setModalType(type); setModal(true);
@@ -552,7 +536,7 @@ IMPORTANT: Tu comprends et replies en Darija marocaine, français, arabe et angl
       <div className="auth-card-premium animate-enter">
         <h1 className="auth-title">Brasti</h1>
         <p style={{ color: 'var(--muted)', marginBottom: 32, fontSize: '0.95rem' }}>
-          Gérez votre production facilement
+          Gérez votre production & ventes facilement
         </p>
         <form onSubmit={handleAuth}>
           <div className="auth-group">
@@ -587,6 +571,26 @@ IMPORTANT: Tu comprends et replies en Darija marocaine, français, arabe et angl
   );
 
   /* ═══════════════════════════════════════════
+     ALL APP TABS LIST
+  ════════════════════════════════════════════ */
+  const TABS_LIST = [
+    { id: 'dashboard',   label: '🏠 Dashboard' },
+    { id: 'clients',     label: '👥 Clients & Dettes' },
+    { id: 'produits',    label: '🏷️ Produits & Codes-barres' },
+    { id: 'stock',       label: '📦 Stock' },
+    { id: 'production',  label: '🏭 Production & Recettes' },
+    { id: 'ventes',      label: '🛒 Ventes & Factures' },
+    { id: 'achats',      label: '🚚 Achats & Fournisseurs' },
+    { id: 'reglements',  label: '💳 Règlements' },
+    { id: 'caisse',      label: '💰 Caisse & Dépenses' },
+    { id: 'apports',     label: '📈 Apports & Prêts' },
+    { id: 'personnel',   label: '👷 Personnel & Salaires' },
+    { id: 'stats',       label: '📊 Stats' },
+    { id: 'chat',        label: '🤖 AI Chat' },
+    { id: 'dev',         label: '👨‍💻 Dev' },
+  ];
+
+  /* ═══════════════════════════════════════════
      MAIN APP
   ════════════════════════════════════════════ */
   return (
@@ -594,8 +598,8 @@ IMPORTANT: Tu comprends et replies en Darija marocaine, français, arabe et angl
       {/* Header */}
       <header className="header">
         <div className="header-title">
-          <img src="/logo.png" alt="Brasti" style={{ height: 36, width: 36, objectFit: 'contain', marginRight: 10, verticalAlign: 'middle' }} />
-          <span style={{ verticalAlign: 'middle' }}>Brasti platform</span>
+          <img src="/logo.png" alt="Brasti" style={{ height: 36, width: 36, objectFit: 'contain', marginRight: 10, verticalAlign: 'middle' }} onError={e => e.target.style.display='none'} />
+          <span style={{ verticalAlign: 'middle' }}>Brasti Platform</span>
         </div>
         <div className="header-actions">
           <button className="icon-btn" onClick={fetchData} title="Rafraîchir"><RefreshCw size={18} /></button>
@@ -605,16 +609,27 @@ IMPORTANT: Tu comprends et replies en Darija marocaine, français, arabe et angl
         </div>
       </header>
 
+      {/* Database Error Banner */}
+      {dbError && (
+        <div style={{ margin: '0 0 16px', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: 14, padding: '12px 16px', color: '#991b1b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85rem' }}>
+            <AlertTriangle size={18} />
+            <span>Erreur de connexion à la base de données. Si le projet est en pause, activez-le sur Supabase.</span>
+          </div>
+          <button onClick={fetchData} style={{ background: '#ef4444', color: 'white', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>
+            Réessayer
+          </button>
+        </div>
+      )}
 
-
-      {/* ── PWA Install Banner ─────────────────── */}
+      {/* PWA Install Banner */}
       {showInstallBanner && (
         <div style={{
           margin: '0 0 16px', background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
           borderRadius: 20, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14,
           color: 'white', boxShadow: '0 8px 25px rgba(79,70,229,0.3)'
         }}>
-          <img src="/logo.png" alt="" style={{ width: 44, height: 44, borderRadius: 12, objectFit: 'contain', background: 'white', padding: 4 }} />
+          <img src="/logo.png" alt="" style={{ width: 44, height: 44, borderRadius: 12, objectFit: 'contain', background: 'white', padding: 4 }} onError={e => e.target.style.display='none'} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>Installer l'application Brasti</div>
             <div style={{ fontSize: '0.8rem', opacity: 0.85, marginTop: 2 }}>Accès rapide depuis votre écran d'accueil</div>
@@ -626,11 +641,16 @@ IMPORTANT: Tu comprends et replies en Darija marocaine, français, arabe et angl
         </div>
       )}
 
-      {/* Nav */}
-      <nav className="nav-tabs">
-        {['dashboard','stock','ventes','stats','chat','dev'].map(tab => (
-          <button key={tab} className={`nav-tab${activeTab === tab ? ' active' : ''}`} onClick={() => setActiveTab(tab)}>
-            {tab === 'dashboard' ? 'Dashboard' : tab === 'stock' ? 'Stock' : tab === 'ventes' ? 'Ventes' : tab === 'stats' ? '📊 Stats' : tab === 'chat' ? 'AI Chat' : '👨‍💻 Dev'}
+      {/* Nav Tabs Bar */}
+      <nav className="nav-tabs" style={{ display: 'flex', overflowX: 'auto', gap: 6, padding: '6px', marginBottom: 24 }}>
+        {TABS_LIST.map(tab => (
+          <button 
+            key={tab.id} 
+            className={`nav-tab${activeTab === tab.id ? ' active' : ''}`} 
+            onClick={() => setActiveTab(tab.id)}
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            {tab.label}
           </button>
         ))}
       </nav>
@@ -638,7 +658,7 @@ IMPORTANT: Tu comprends et replies en Darija marocaine, français, arabe et angl
       {/* Content */}
       <main id="app-content">
 
-        {/* DASHBOARD */}
+        {/* ── 1. DASHBOARD ORIGINAL ─────────────────────────────────── */}
         {activeTab === 'dashboard' && (
           <div className="animate-enter">
             <div className="stats-grid">
@@ -650,116 +670,96 @@ IMPORTANT: Tu comprends et replies en Darija marocaine, français, arabe et angl
               </div>
               <div className="stat-card" style={{ borderLeft: '5px solid #ef4444' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                  <div><div className="stat-value" style={{ color: '#ef4444' }}>{totalDettes.toFixed(0)} DA</div><div className="stat-label">Non Payés</div></div>
+                  <div><div className="stat-value" style={{ color: '#ef4444' }}>{totalDettes.toFixed(0)} DA</div><div className="stat-label">Non Payés (Crédit)</div></div>
                   <AlertTriangle color="#ef4444" size={30} />
                 </div>
               </div>
-              <div className="stat-card" style={{ borderLeft: '5px solid var(--primary)' }}>
+              <div className="stat-card" style={{ borderLeft: '5px solid #4f46e5' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                  <div><div className="stat-value" style={{ color: 'var(--primary)' }}>{totalVentes.toFixed(0)} DA</div><div className="stat-label">Total Ventes</div></div>
-                  <ShoppingBag color="var(--primary)" size={30} />
+                  <div><div className="stat-value" style={{ color: '#4f46e5' }}>{totalVentes.toFixed(0)} DA</div><div className="stat-label">Chiffre d'Affaires</div></div>
+                  <ShoppingBag color="#4f46e5" size={30} />
                 </div>
               </div>
             </div>
+
             {/* Chart */}
-            <div className="glass-container" style={{ height: 300 }}>
-              <Line options={{ maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }}
-                data={{ labels: ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'],
-                  datasets: [{ label: 'Gain (DA)', data: [0,0,0,0,0,0, benefice], fill: true, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.08)', tension: 0.4, pointBackgroundColor: '#10b981', pointRadius: 5 }]
-                }}
-              />
-            </div>
-            {/* Top Products */}
-            {topProducts.length > 0 && (
-              <div className="glass-container">
-                <h4 style={{ fontWeight: 800, marginBottom: 16 }}>🏆 Top Produits Vendus</h4>
-                {topProducts.slice(0,5).map((p,i) => (
-                  <div key={p.nom} style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
-                    <div style={{ width:28, height:28, borderRadius:'50%', background: i===0?'#f59e0b':i===1?'#94a3b8':'#c084fc', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:900, fontSize:'0.8rem' }}>{i+1}</div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:700 }}>{p.nom}</div>
-                      <div style={{ height:6, borderRadius:4, background:'#f1f5f9', marginTop:4 }}>
-                        <div style={{ height:'100%', borderRadius:4, background:'var(--primary)', width: `${Math.min((p.total/topProducts[0].total)*100,100)}%`, transition:'width 0.5s' }} />
-                      </div>
-                    </div>
-                    <div style={{ fontWeight:800, color:'var(--primary)', fontSize:'0.9rem', minWidth:90, textAlign:'right' }}>{p.total.toFixed(0)} DA</div>
-                  </div>
-                ))}
+            <div className="glass-container">
+              <div className="section-header">
+                <h3>Évolution des Ventes</h3>
               </div>
-            )}
+              <div style={{ height: 260 }}>
+                <Line
+                  data={{
+                    labels: ventes.slice(0, 10).reverse().map(v => v.date || ''),
+                    datasets: [{
+                      label: 'Ventes (DA)',
+                      data: ventes.slice(0, 10).reverse().map(v => v.total_prix || (v.prix * v.quantite)),
+                      borderColor: '#4f46e5',
+                      backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                      fill: true,
+                      tension: 0.3
+                    }]
+                  }}
+                  options={{ responsive: true, maintainAspectRatio: false }}
+                />
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+              <button className="btn-primary" style={{ padding: 16 }} onClick={() => openModal('vente')}>
+                <Plus size={18} /> Nouvelle Vente
+              </button>
+              <button className="btn-secondary" style={{ padding: 16 }} onClick={() => openModal('product')}>
+                <Plus size={18} /> Nouveau Produit
+              </button>
+              <button className="btn-secondary" style={{ padding: 16 }} onClick={() => openModal('achat')}>
+                <Plus size={18} /> Nouvel Achat
+              </button>
+              <button className="btn-secondary" style={{ padding: 16 }} onClick={generateFullReport}>
+                <Download size={18} /> Télécharger Rapport
+              </button>
+            </div>
           </div>
         )}
 
-        {/* STOCK */}
+        {/* ── 2. CLIENTS (NOUVEAU MODULE) ─────────────────────────── */}
+        {activeTab === 'clients' && <ClientsModule session={session} theme={theme} />}
+
+        {/* ── 3. PRODUITS & CODES-BARRES (NOUVEAU MODULE) ─────────── */}
+        {activeTab === 'produits' && <ProduitsModule session={session} theme={theme} />}
+
+        {/* ── 4. STOCK (STOCK ORIGINAL + MATIÈRES PREMIÈRES) ───────── */}
         {activeTab === 'stock' && (
           <div className="animate-enter">
-            <div className="section-header">
-              <h3>Inventaire</h3>
-              <button className="btn-primary" onClick={() => openModal('product')}><Plus size={16} /> Nouveau produit</button>
-            </div>
-            {products.length === 0 && <p style={{ color: 'var(--muted)', textAlign: 'center', padding: 40 }}>Aucun produit. Ajoutez votre premier produit !</p>}
-            <div className="products-grid">
-              {products.map(p => (
-                <div key={p.id} className="product-card" style={{ position: 'relative' }} onClick={() => openEditProduct(p)}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <b style={{ fontSize: '1rem' }}>{p.nom}</b>
-                    <span className={`badge ${p.stock_qty > 0 ? 'badge-success' : 'badge-danger'}`}>{p.stock_qty} unités</span>
-                  </div>
-                  <div style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Coût: <strong style={{ color: 'var(--primary)' }}>{p.prix_unitaire} DA</strong></div>
-                  <div style={{ marginTop: 10, fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>✏️ Cliquer pour modifier</div>
-                  {/* Action buttons */}
-                  <div style={{ display: 'flex', gap: 6, marginTop: 12 }} onClick={e => e.stopPropagation()}>
-                    <button className="btn-primary" style={{ flex: 1, padding: '8px', fontSize: '0.78rem' }}
-                      onClick={(e) => { e.stopPropagation(); openModal('vente', { product_id: p.id, nom: p.nom, prix: +(p.prix_unitaire * 1.2).toFixed(2) }); }}>
-                      💸 Vendre
-                    </button>
-                    <button className="icon-btn" onClick={(e) => { e.stopPropagation(); handleDelete('products', p.id); }}
-                      style={{ color: '#ef4444', background: 'rgba(239,68,68,0.1)' }} title="Supprimer">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <StockModule session={session} theme={theme} />
           </div>
         )}
 
-        {/* VENTES */}
-        {activeTab === 'ventes' && (
-          <div className="glass-container animate-enter">
-            <div className="section-header">
-              <h3>Historique des ventes</h3>
-              <button className="btn-primary" onClick={() => openModal('vente')}><Plus size={16} /> Nouvelle vente</button>
-            </div>
-            {ventes.length === 0 && <p style={{ color: 'var(--muted)', textAlign: 'center', padding: 30 }}>Aucune vente enregistrée.</p>}
-            <table className="data-table">
-              <thead><tr><th>Client</th><th>Article</th><th>Total</th><th>Statut</th><th>Actions</th></tr></thead>
-              <tbody>
-                {ventes.map(v => (
-                  <tr key={v.id}>
-                    <td>
-                      <div style={{ fontWeight: 700 }}>{v.client_nom || '—'}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{v.client_tel}</div>
-                    </td>
-                    <td>{v.nom} <span style={{ color: 'var(--muted)' }}>×{v.quantite}</span></td>
-                    <td><strong>{(v.prix * v.quantite).toFixed(0)} DA</strong></td>
-                    <td><span className={`badge ${v.est_paye ? 'badge-success' : 'badge-danger'}`}>{v.est_paye ? 'Payé' : 'Crédit'}</span></td>
-                    <td style={{ display: 'flex', gap: 6 }}>
-                      <button className="icon-btn" title="Re-vendre à ce client" onClick={() => openQuickSell(v)}><Plus size={16} /></button>
-                      <button className="icon-btn" title="Télécharger Facture PDF" onClick={() => generateInvoice(v)}><Printer size={16} /></button>
-                      <button className="icon-btn" title="Supprimer la vente" onClick={() => handleDelete('ventes', v.id)} style={{ color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }}><Trash2 size={16} /></button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {/* ── 5. PRODUCTION & RECETTES (NOUVEAU MODULE) ────────────── */}
+        {activeTab === 'production' && <ProductionModule session={session} theme={theme} />}
 
-        {/* STATS TAB */}
+        {/* ── 6. VENTES & FACTURES & BL (MODULE COMPLET) ──────────── */}
+        {activeTab === 'ventes' && <VentesModule session={session} theme={theme} />}
+
+        {/* ── 7. ACHATS & FOURNISSEURS (NOUVEAU MODULE) ───────────── */}
+        {activeTab === 'achats' && <AchatsModule session={session} theme={theme} />}
+
+        {/* ── 8. RÈGLEMENTS CLIENTS & FOURNISSEURS (NOUVEAU MODULE) ─ */}
+        {activeTab === 'reglements' && <ReglementsModule session={session} theme={theme} />}
+
+        {/* ── 9. CAISSE & DÉPENSES (NOUVEAU MODULE) ───────────────── */}
+        {activeTab === 'caisse' && <CaisseModule session={session} theme={theme} />}
+
+        {/* ── 10. APPORTS, INVESTISSEMENTS & PRÊTS (NOUVEAU MODULE) ─ */}
+        {activeTab === 'apports' && <ApportsModule session={session} theme={theme} />}
+
+        {/* ── 11. PERSONNEL & SALAIRES (NOUVEAU MODULE) ───────────── */}
+        {activeTab === 'personnel' && <PersonnelModule session={session} theme={theme} />}
+
+        {/* ── 12. STATS TAB ORIGINAL ───────────────────────────────── */}
         {activeTab === 'stats' && (
           <div className="animate-enter">
-            {/* Period stats cards */}
             {[
               { label: 'Cette Semaine', ...statsBy('week'), color: '#8b5cf6' },
               { label: 'Ce Mois', ...statsBy('month'), color: '#0ea5e9' },
@@ -767,7 +767,7 @@ IMPORTANT: Tu comprends et replies en Darija marocaine, français, arabe et angl
             ].map(s => (
               <div key={s.label} className="glass-container" style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <h4 style={{ fontWeight: 800, fontSize: '1rem' }}>📅 {s.label}</h4>
+                  <h4 style={{ fontWeight: 800, fontSize: '1rem' }}>📈 {s.label}</h4>
                   <span className="badge badge-success">{s.nb} ventes</span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -783,170 +783,72 @@ IMPORTANT: Tu comprends et replies en Darija marocaine, français, arabe et angl
               </div>
             ))}
 
-            {/* Top products */}
-            {topProducts.length > 0 && (
-              <div className="glass-container" style={{ marginBottom: 16 }}>
-                <h4 style={{ fontWeight: 800, marginBottom: 18 }}>🏆 Classement des Produits</h4>
-                {topProducts.map((p, i) => (
-                  <div key={p.nom} style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
-                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: ['#f59e0b','#94a3b8','#c084fc','#4f46e5','#10b981'][i] || '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 900, fontSize: '0.85rem', flexShrink: 0 }}>{i + 1}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontWeight: 700 }}>{p.nom}</span>
-                        <span style={{ fontWeight: 800, color: 'var(--primary)' }}>{p.total.toFixed(0)} DA</span>
+            <div className="glass-container">
+              <h4 style={{ fontWeight: 800, marginBottom: 16 }}>🏆 Top Produits Vendus</h4>
+              {topProducts.length === 0 ? <p style={{ color: 'var(--muted)' }}>Aucune vente enregistrée.</p> : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {topProducts.map((p, i) => (
+                    <div key={p.nom} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--card)', border: '1px solid var(--card-border)', borderRadius: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontWeight: 800, color: 'var(--primary)', width: 20 }}>#{i + 1}</span>
+                        <div><strong>{p.nom}</strong><div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{p.qty} unités vendues</div></div>
                       </div>
-                      <div style={{ height: 6, borderRadius: 4, background: '#f1f5f9', marginTop: 6 }}>
-                        <div style={{ height: '100%', borderRadius: 4, background: 'var(--primary)', width: `${Math.min((p.total / (topProducts[0]?.total || 1)) * 100, 100)}%`, transition: 'width 0.6s' }} />
-                      </div>
-                      <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 3 }}>Quantité vendée: {p.qty}</div>
+                      <strong style={{ color: '#10b981' }}>{p.total.toFixed(0)} DA</strong>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* AI CHAT */}
+        {/* ── 13. DARIJA AI CHAT ORIGINAL ──────────────────────────── */}
         {activeTab === 'chat' && (
-          <div className="glass-container animate-enter" style={{ padding: 0, overflow: 'hidden' }}>
-
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--card-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>🤖 AI Business Assistant</h3>
-                <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: 3 }}>Posez des questions sur vos ventes et votre activité</p>
-              </div>
-              <button className="btn-primary" style={{ fontSize: '0.78rem', padding: '8px 14px' }} onClick={() => setMessages([])}>Effacer</button>
-            </div>
+          <div className="glass-container animate-enter" style={{ padding: 0 }}>
             <div className="chat-container">
               <div className="chat-messages">
                 {messages.length === 0 && (
-                  <div style={{ textAlign: 'center', color: 'var(--muted)', marginTop: 24 }}>
-                    <div style={{ fontSize: '2rem', marginBottom: 10 }}>🤖</div>
-                    <p style={{ fontWeight: 700, marginBottom: 12 }}>Bonjour ! Comment puis-je vous aider ?</p>
-                    {[
-                      'Quel est mon bénéfice ?',
-                      'Combien de dettes impayées ?',
-                      'Quels produits sont en stock ?',
-                      'Résumé de mes ventes'
-                    ].map(q => (
-                      <div key={q} onClick={() => { setChatInput(q); }} style={{
-                        display: 'inline-block', margin: '4px', padding: '7px 14px',
-                        background: 'rgba(79,70,229,0.08)', borderRadius: 20,
-                        fontSize: '0.82rem', cursor: 'pointer', color: 'var(--primary)', fontWeight: 600
-                      }}>{q}</div>
-                    ))}
+                  <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>
+                    <p style={{ fontWeight: 700 }}>🤖 Assistant Intelligent BRASTI</p>
+                    <small>Posez vos questions en Darija ou en Français (ex: "Shhal rbhna ?", "Wach kayn stock ?")</small>
                   </div>
                 )}
-                {messages.map((m, i) => (
-                  <div key={m.id || i} className={`message ${m.sender}`}>{m.content}</div>
+                {messages.map(m => (
+                  <div key={m.id} className={`message ${m.sender === 'customer' ? 'customer' : 'admin'}`}>
+                    {m.content}
+                  </div>
                 ))}
-                {isBotTyping && (
-                  <div className="message admin" style={{ display: 'flex', gap: 5, alignItems: 'center', padding: '14px 18px' }}>
-                    <span style={{ width: 8, height: 8, background: 'var(--muted)', borderRadius: '50%', animation: 'blink 1.2s infinite 0s' }} />
-                    <span style={{ width: 8, height: 8, background: 'var(--muted)', borderRadius: '50%', animation: 'blink 1.2s infinite 0.3s' }} />
-                    <span style={{ width: 8, height: 8, background: 'var(--muted)', borderRadius: '50%', animation: 'blink 1.2s infinite 0.6s' }} />
-                  </div>
-                )}
+                {isBotTyping && <div className="message admin">En train d'écrire...</div>}
                 <div ref={chatEndRef} />
               </div>
               <div className="chat-input-area">
-                <input
-                  className="form-control" value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSend()}
-                  placeholder="Tapez votre question..."
-                  disabled={isBotTyping}
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  placeholder="Écrivez votre message..." 
+                  value={chatInput} 
+                  onChange={e => setChatInput(e.target.value)} 
+                  onKeyDown={e => e.key === 'Enter' && handleSend()} 
                 />
-                <button className="btn-primary" style={{ flexShrink: 0, padding: '12px 18px', opacity: isBotTyping ? 0.6 : 1 }} onClick={handleSend} disabled={isBotTyping}>
-                  <Send size={18} />
-                </button>
+                <button className="btn-primary" onClick={handleSend}><Send size={16} /></button>
               </div>
             </div>
           </div>
         )}
 
-        {/* DEVELOPER PROFILE TAB */}
+        {/* ── 14. DEV PROFILE ORIGINAL ──────────────────────────────── */}
         {activeTab === 'dev' && (
-          <div className="animate-enter" style={{ padding: '0 0 40px' }}>
-            {/* Hero Card */}
-            <div style={{
-              background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%)',
-              borderRadius: 28, padding: '40px 28px 32px', textAlign: 'center',
-              marginBottom: 20, position: 'relative', overflow: 'hidden',
-              boxShadow: '0 20px 60px rgba(79,70,229,0.35)'
-            }}>
-              {/* Decorative circles */}
-              <div style={{ position:'absolute', top:-40, right:-40, width:160, height:160, borderRadius:'50%', background:'rgba(255,255,255,0.06)' }} />
-              <div style={{ position:'absolute', bottom:-30, left:-30, width:120, height:120, borderRadius:'50%', background:'rgba(255,255,255,0.06)' }} />
-
-              <div style={{ position:'relative', zIndex:1 }}>
-                <div style={{ width:100, height:100, borderRadius:'50%', margin:'0 auto 16px', border:'4px solid rgba(255,255,255,0.5)', overflow:'hidden', background:'white', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  <img src="/logo.png" alt="Hamza Amirni" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                </div>
-                <h2 style={{ color:'white', fontWeight:900, fontSize:'1.6rem', margin:'0 0 6px', letterSpacing:'-0.5px' }}>Hamza Amirni</h2>
-                <p style={{ color:'rgba(255,255,255,0.85)', fontSize:'0.95rem', margin:'0 0 20px', fontWeight:500 }}>Full-Stack Developer · Créateur de Brasti</p>
-                <div style={{ display:'flex', justifyContent:'center', gap:10, flexWrap:'wrap' }}>
-                  {['React', 'Node.js', 'Supabase', 'PWA', 'Python'].map(skill => (
-                    <span key={skill} style={{ padding:'5px 14px', background:'rgba(255,255,255,0.18)', borderRadius:30, color:'white', fontSize:'0.78rem', fontWeight:700, backdropFilter:'blur(10px)', border:'1px solid rgba(255,255,255,0.25)' }}>{skill}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Stats Row */}
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
-              {[
-                { emoji:'💻', label:'Apps créées', value:'10+' },
-                { emoji:'⭐', label:'Projets livrés', value:'20+' },
-                { emoji:'🚀', label:'Années exp.', value:'3+' },
-              ].map(s => (
-                <div key={s.label} style={{ background:'var(--card)', borderRadius:20, padding:'18px 12px', textAlign:'center', border:'1.5px solid var(--card-border)', boxShadow:'0 4px 16px rgba(0,0,0,0.06)' }}>
-                  <div style={{ fontSize:'1.6rem', marginBottom:4 }}>{s.emoji}</div>
-                  <div style={{ fontWeight:900, fontSize:'1.3rem', color:'var(--primary)' }}>{s.value}</div>
-                  <div style={{ fontSize:'0.72rem', color:'var(--muted)', fontWeight:600, marginTop:2 }}>{s.label}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Social Links */}
-            <div style={{ background:'var(--card)', borderRadius:24, padding:'24px 20px', border:'1.5px solid var(--card-border)', marginBottom:16, boxShadow:'0 4px 20px rgba(0,0,0,0.06)' }}>
-              <h4 style={{ fontWeight:800, marginBottom:16, fontSize:'0.95rem', color:'var(--text)', letterSpacing:'-0.3px' }}>📡 Réseaux Sociaux</h4>
-              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                {[
-                  { label:'Portfolio',   icon:'🌐', url:'https://hamzaamirni.netlify.app',    color:'#4f46e5', desc:'Voir mes projets' },
-                  { label:'Instagram',   icon:'📸', url:'https://instagram.com/hamza_amirni_01', color:'#e1306c', desc:'@hamza_amirni_01' },
-                  { label:'YouTube',     icon:'📺', url:'https://www.youtube.com/@Hamzaamirni01', color:'#ff0000', desc:'Tutoriels & contenus' },
-                  { label:'WhatsApp',    icon:'💬', url:'https://whatsapp.com/channel/0029ValXRoHCnA7yKopcrn1p', color:'#25d366', desc:'Canal WhatsApp' },
-                  { label:'Facebook',    icon:'📘', url:'https://www.facebook.com/profile.php?id=61564527797752', color:'#1877f2', desc:'Page Facebook' },
-                  { label:'Telegram',    icon:'✈️', url:'https://t.me/hamzaamirni',           color:'#229ED9', desc:'@hamzaamirni' },
-                ].map(link => (
-                  <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer"
-                    style={{ display:'flex', alignItems:'center', gap:14, padding:'13px 16px', borderRadius:16, background:`${link.color}0d`, border:`1.5px solid ${link.color}22`, textDecoration:'none', transition:'all 0.2s' }}
-                    onMouseEnter={e => e.currentTarget.style.transform='translateX(4px)'}
-                    onMouseLeave={e => e.currentTarget.style.transform='translateX(0)'}
-                  >
-                    <span style={{ fontSize:'1.3rem', width:38, height:38, display:'flex', alignItems:'center', justifyContent:'center', background:`${link.color}18`, borderRadius:12 }}>{link.icon}</span>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:800, color:'var(--text)', fontSize:'0.9rem' }}>{link.label}</div>
-                      <div style={{ fontSize:'0.75rem', color:'var(--muted)', marginTop:1 }}>{link.desc}</div>
-                    </div>
-                    <span style={{ color:link.color, fontWeight:800, fontSize:'1rem' }}>→</span>
-                  </a>
-                ))}
-              </div>
-            </div>
-
-            {/* App Info */}
-            <div style={{ background:'linear-gradient(135deg, rgba(79,70,229,0.08), rgba(124,58,237,0.06))', borderRadius:24, padding:'22px 20px', border:'1.5px solid rgba(79,70,229,0.15)', textAlign:'center' }}>
-              <div style={{ fontSize:'2rem', marginBottom:8 }}>🏭</div>
-              <h4 style={{ fontWeight:900, color:'var(--text)', marginBottom:6 }}>Brasti Platform</h4>
-              <p style={{ color:'var(--muted)', fontSize:'0.83rem', lineHeight:1.6 }}>Application de gestion de production et vente · Développée avec React & Supabase · Version PWA</p>
-              <div style={{ marginTop:14, display:'flex', justifyContent:'center', gap:10 }}>
-                <a href="https://brasti.netlify.app" target="_blank" rel="noopener noreferrer" style={{ padding:'10px 20px', background:'var(--primary)', color:'white', borderRadius:14, fontSize:'0.82rem', fontWeight:800, textDecoration:'none' }}>🌐 Voir l'app</a>
-                <a href="https://hamzaamirni.netlify.app" target="_blank" rel="noopener noreferrer" style={{ padding:'10px 20px', background:'rgba(79,70,229,0.1)', color:'var(--primary)', border:'1.5px solid rgba(79,70,229,0.2)', borderRadius:14, fontSize:'0.82rem', fontWeight:800, textDecoration:'none' }}>📂 Portfolio</a>
+          <div className="animate-enter">
+            <div className="glass-container" style={{ textAlign: 'center', padding: 40 }}>
+              <img src="/logo.png" alt="Brasti" style={{ width: 80, height: 80, margin: '0 auto 16px', borderRadius: 20, objectFit: 'contain' }} onError={e => e.target.style.display='none'} />
+              <h2 style={{ fontWeight: 900, fontSize: '1.8rem', color: 'var(--primary)', marginBottom: 8 }}>Brasti ERP</h2>
+              <p style={{ color: 'var(--muted)', maxWidth: 500, margin: '0 auto 20px', fontSize: '0.95rem' }}>
+                Plateforme complète de gestion de production, stocks, formules, ventes, trésorerie et personnel.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <a href="https://github.com/HamzabAmirni1/Gestion-des-achats-hsabi2" target="_blank" rel="noopener noreferrer" className="btn-primary" style={{ textDecoration: 'none' }}>
+                  Voir sur GitHub
+                </a>
               </div>
             </div>
           </div>
@@ -954,160 +856,94 @@ IMPORTANT: Tu comprends et replies en Darija marocaine, français, arabe et angl
 
       </main>
 
-      {/* MODAL */}
+      {/* ── MODALS ORIGINAUX ────────────────────────────────────── */}
       {isModalOpen && (
         <div className="modal-overlay" onClick={() => setModal(false)}>
           <div className="modal-content animate-enter" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{modalType === 'product' ? '📦 Nouveau Produit' : modalType === 'achat' ? '🛒 Achat' : modalType === 'editProduct' ? '✏️ Modifier le Produit' : '💸 Vente'}</h3>
-              <button className="modal-close-btn" onClick={() => setModal(false)}><X size={18} /></button>
+              <h3>
+                {modalType === 'product' ? '📦 Nouveau Produit' : modalType === 'achat' ? '🚚 Nouvel Achat' : modalType === 'editProduct' ? '✏️ Modifier Produit' : '🛒 Nouvelle Vente'}
+              </h3>
+              <button className="modal-close-btn" onClick={() => setModal(false)}>×</button>
             </div>
 
-            {/* ── EDIT PRODUCT FORM ─────────────────── */}
+            {/* Form edit product */}
             {modalType === 'editProduct' && (
               <form onSubmit={handleUpdate}>
                 <div className="form-group">
                   <label>Désignation</label>
-                  <input className="form-control" value={form.nom} required
-                    onChange={e => setForm(f => ({ ...f, nom: e.target.value }))} />
+                  <input className="form-control" value={form.nom} required onChange={e => setForm(f => ({ ...f, nom: e.target.value }))} />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div className="form-group">
-                    <label>Prix de revient (DA)</label>
-                    <input type="number" step="0.01" className="form-control" value={form.prix} required
-                      onChange={e => setForm(f => ({ ...f, prix: e.target.value }))} />
+                    <label>Prix (DA)</label>
+                    <input type="number" step="0.01" className="form-control" value={form.prix} required onChange={e => setForm(f => ({ ...f, prix: e.target.value }))} />
                   </div>
                   <div className="form-group">
-                    <label>Quantité en stock</label>
-                    <input type="number" min="0" className="form-control" value={form.quantite} required
-                      onChange={e => setForm(f => ({ ...f, quantite: e.target.value }))} />
+                    <label>Stock</label>
+                    <input type="number" min="0" className="form-control" value={form.quantite} required onChange={e => setForm(f => ({ ...f, quantite: e.target.value }))} />
                   </div>
                 </div>
-                <div style={{ background: 'rgba(79,70,229,0.06)', borderRadius: 14, padding: '12px 18px', marginBottom: 16, fontSize: '0.88rem', color: 'var(--muted)' }}>
-                  📊 Valeur estimée du stock : <strong style={{ color: 'var(--primary)' }}>{(+form.prix * +form.quantite).toFixed(0)} DA</strong>
-                </div>
-                <button type="submit" className="btn-primary" style={{ width: '100%', padding: '15px' }} disabled={isSubmitting}>
-                  {isSubmitting ? '...' : '✅ Mettre à jour le stock'}
+                <button type="submit" className="btn-primary" style={{ width: '100%', padding: '14px', marginTop: 10 }} disabled={isSubmitting}>
+                  {isSubmitting ? '...' : 'Mettre à jour'}
                 </button>
               </form>
             )}
 
-            <form onSubmit={handleSubmit} style={{ display: modalType === 'editProduct' ? 'none' : 'block' }}>
-              {/* Smart Autocomplete Désignation */}
-              <div className="form-group" style={{ position: 'relative' }}>
-                <label>Désignation</label>
-                <input
-                  className="form-control"
-                  value={form.nom}
-                  required
-                  placeholder="Tapez ou choisissez un produit..."
-                  autoComplete="off"
-                  onChange={e => {
-                    setForm(f => ({ ...f, nom: e.target.value, product_id: '' }));
-                    setProductSearch(e.target.value);
-                    setShowSuggestions(true);
-                  }}
-                  onFocus={() => setShowSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                />
-                {/* Suggestions dropdown */}
-                {showSuggestions && productSearch.length >= 0 && (
-                  <div style={{
-                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
-                    background: 'white', border: '2px solid var(--card-border)',
-                    borderRadius: 14, boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-                    maxHeight: 220, overflowY: 'auto', marginTop: 4
-                  }}>
-                    {products
-                      .filter(p => p.nom.toLowerCase().includes(productSearch.toLowerCase()))
-                      .map(p => (
-                        <div
-                          key={p.id}
-                          onMouseDown={() => {
-                            setForm(f => ({
-                              ...f,
-                              nom: p.nom,
-                              product_id: p.id,
-                              prix: +(p.prix_unitaire * 1.2).toFixed(2)
-                            }));
-                            setProductSearch(p.nom);
-                            setShowSuggestions(false);
-                          }}
-                          style={{
-                            padding: '12px 16px', cursor: 'pointer', display: 'flex',
-                            justifyContent: 'space-between', alignItems: 'center',
-                            borderBottom: '1px solid #f1f5f9', transition: '0.15s'
-                          }}
-                          onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'white'}
-                        >
-                          <span style={{ fontWeight: 700 }}>{p.nom}</span>
-                          <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
-                            Stock: <strong style={{ color: p.stock_qty > 0 ? '#10b981' : '#ef4444' }}>{p.stock_qty}</strong>
-                            {' · '}{(p.prix_unitaire * 1.2).toFixed(0)} DA
-                          </span>
-                        </div>
-                      ))
-                    }
-                    {products.filter(p => p.nom.toLowerCase().includes(productSearch.toLowerCase())).length === 0 && (
-                      <div style={{ padding: '12px 16px', color: 'var(--muted)', fontSize: '0.9rem' }}>
-                        Aucun produit trouvé — vous pouvez taper un nom libre
-                      </div>
-                    )}
+            {/* Form Achat / Vente / Produit Original */}
+            {modalType !== 'editProduct' && (
+              <form onSubmit={handleSubmit}>
+                {modalType === 'vente' && (
+                  <div className="form-group">
+                    <label>Lier à un Produit du Stock</label>
+                    <select className="form-control" value={form.product_id} onChange={e => {
+                      const p = products.find(x => x.id === e.target.value);
+                      setForm(f => p ? { ...f, product_id: p.id, nom: p.nom, prix: +(p.prix_unitaire * 1.2).toFixed(2) } : { ...f, product_id: '' });
+                    }}>
+                      <option value="">-- Sélectionner un produit existant --</option>
+                      {products.map(p => <option key={p.id} value={p.id}>{p.nom} (Stock: {p.stock_qty})</option>)}
+                    </select>
                   </div>
                 )}
-              </div>
 
-              {modalType === 'vente' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div className="form-group">
-                    <label>Nom client</label>
-                    <input className="form-control" value={form.client_nom} placeholder="Optionnel" onChange={e => setForm(f => ({ ...f, client_nom: e.target.value }))} />
-                  </div>
-                  <div className="form-group">
-                    <label>Téléphone</label>
-                    <input className="form-control" value={form.client_tel} placeholder="06..." onChange={e => setForm(f => ({ ...f, client_tel: e.target.value }))} />
-                  </div>
-                  <div className="form-group" style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: 14, padding: '10px 14px', background: 'rgba(16,185,129,0.06)', borderRadius: 14 }}>
-                    <input type="checkbox" id="paye-check" checked={form.est_paye} onChange={e => setForm(f => ({ ...f, est_paye: e.target.checked }))} style={{ width: 20, height: 20, cursor: 'pointer', accentColor: '#10b981' }} />
-                    <label htmlFor="paye-check" style={{ cursor: 'pointer', fontWeight: 700, textTransform: 'none', letterSpacing: 0 }}>Payé en cash ?</label>
-                  </div>
-                </div>
-              )}
-
-              {modalType !== 'product' && (
-                <div className="form-group" style={{ background: 'rgba(79,70,229,0.05)', padding: '14px', borderRadius: 14 }}>
-                  <label>🔗 Lier au Stock (optionnel)</label>
-                  <select className="form-control" value={form.product_id} onChange={e => {
-                    const p = products.find(x => x.id === e.target.value);
-                    setForm(f => p ? { ...f, product_id: p.id, nom: p.nom, prix: +(p.prix_unitaire * 1.2).toFixed(2) } : { ...f, product_id: '' });
-                  }}>
-                    <option value="">— Sélectionner un produit —</option>
-                    {products.map(p => <option key={p.id} value={p.id}>{p.nom} (Stock: {p.stock_qty})</option>)}
-                  </select>
-                </div>
-              )}
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div className="form-group">
-                  <label>Prix unitaire (DA)</label>
-                  <input type="number" step="0.01" className="form-control" value={form.prix} required onChange={e => setForm(f => ({ ...f, prix: e.target.value }))} />
+                  <label>Désignation de l'article *</label>
+                  <input className="form-control" required value={form.nom} onChange={e => setForm(f => ({ ...f, nom: e.target.value }))} placeholder="Ex: Javel 1L" />
                 </div>
-                <div className="form-group">
-                  <label>Quantité</label>
-                  <input type="number" min="1" className="form-control" value={form.quantite} required onChange={e => setForm(f => ({ ...f, quantite: e.target.value }))} />
+
+                {modalType === 'vente' && (
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Client</label>
+                      <input className="form-control" value={form.client_nom} onChange={e => setForm(f => ({ ...f, client_nom: e.target.value }))} placeholder="Nom du client" />
+                    </div>
+                    <div className="form-group">
+                      <label>Téléphone</label>
+                      <input className="form-control" value={form.client_tel} onChange={e => setForm(f => ({ ...f, client_tel: e.target.value }))} placeholder="06XXXXXXXX" />
+                    </div>
+                  </div>
+                )}
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Quantité</label>
+                    <input type="number" min="1" className="form-control" value={form.quantite} required onChange={e => setForm(f => ({ ...f, quantite: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label>Prix Unitaire (DA)</label>
+                    <input type="number" step="0.01" className="form-control" value={form.prix} required onChange={e => setForm(f => ({ ...f, prix: e.target.value }))} />
+                  </div>
                 </div>
-              </div>
 
-              {/* Live total preview */}
-              <div style={{ background: 'rgba(79,70,229,0.06)', borderRadius: 14, padding: '14px 18px', marginBottom: 16, fontWeight: 700 }}>
-                Total estimé : <span style={{ color: 'var(--primary)', fontSize: '1.1rem' }}>{(+form.prix * +form.quantite).toFixed(2)} DA</span>
-              </div>
+                <div style={{ background: 'rgba(79,70,229,0.06)', borderRadius: 12, padding: '12px 16px', marginBottom: 16, fontWeight: 800 }}>
+                  Total : <span style={{ color: 'var(--primary)' }}>{(+form.prix * +form.quantite).toFixed(2)} DA</span>
+                </div>
 
-              <button type="submit" className="btn-primary" style={{ width: '100%', padding: '15px' }} disabled={isSubmitting}>
-                {isSubmitting ? '...' : '✅ Enregistrer'}
-              </button>
-            </form>
+                <button type="submit" className="btn-primary" style={{ width: '100%', padding: '14px' }} disabled={isSubmitting}>
+                  {isSubmitting ? '...' : 'Valider et Enregistrer'}
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}
