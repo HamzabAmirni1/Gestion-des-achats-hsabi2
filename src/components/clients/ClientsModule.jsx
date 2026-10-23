@@ -306,7 +306,7 @@ export default function ClientsModule({ session, theme }) {
       )}
 
       {/* Stats bar */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
+      <div className="stats-grid">
         <div className="stat-card" style={{ borderLeft: '5px solid #4f46e5' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
@@ -364,7 +364,7 @@ export default function ClientsModule({ session, theme }) {
         </div>
 
         {/* Layout: Table on left, Client details panel on right */}
-        <div style={{ display: 'grid', gridTemplateColumns: selectedClient ? '1.5fr 1fr' : '1fr', gap: 20 }}>
+        <div className={selectedClient ? "client-master-detail" : ""}>
           {/* Table */}
           <div className="table-wrapper">
             {loading ? (

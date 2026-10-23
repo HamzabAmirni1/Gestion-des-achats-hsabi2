@@ -141,7 +141,7 @@ export default function ProduitsModule({ session, theme }) {
   return (
     <div className="animate-enter">
       {/* Stats bar */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+      <div className="stats-grid">
         <div className="stat-card" style={{ borderLeft: '5px solid #4f46e5' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>

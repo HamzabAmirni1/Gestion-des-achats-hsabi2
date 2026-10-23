@@ -152,7 +152,7 @@ export default function ReglementsModule({ session, theme }) {
   return (
     <div className="animate-enter">
       {/* Top Stats */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
+      <div className="stats-grid">
         <div className="stat-card" style={{ borderLeft: '5px solid #10b981' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>

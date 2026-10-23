@@ -117,7 +117,7 @@ export default function DashboardModule({ session, theme }) {
       </div>
 
       {/* Main KPIs */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
+      <div className="stats-grid">
         <div className="stat-card" style={{ borderLeft: '5px solid #10b981' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
@@ -175,7 +175,7 @@ export default function DashboardModule({ session, theme }) {
       </div>
 
       {/* Charts + Top lists */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+      <div className="dashboard-two-cols" style={{ marginBottom: 20 }}>
         {/* Monthly bar chart */}
         <div className="glass-container" style={{ margin: 0 }}>
           <h3 style={{ fontWeight: 800, marginBottom: 20, fontSize: '1.1rem' }}>📊 Évolution 6 Mois</h3>
@@ -219,7 +219,7 @@ export default function DashboardModule({ session, theme }) {
       </div>
 
       {/* Top products + Recent activity */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+      <div className="dashboard-two-cols">
         <div className="glass-container" style={{ margin: 0 }}>
           <h3 style={{ fontWeight: 800, marginBottom: 16, fontSize: '1.1rem' }}>📦 Top Produits</h3>
           {stats.topProduits.length === 0 ? (

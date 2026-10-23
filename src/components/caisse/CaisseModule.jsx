@@ -148,7 +148,7 @@ export default function CaisseModule({ session, theme }) {
   return (
     <div className="animate-enter">
       {/* Top Solde banner */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+      <div className="stats-grid">
         <div className="stat-card" style={{ borderLeft: stats.solde >= 0 ? '5px solid #10b981' : '5px solid #ef4444' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>

@@ -282,13 +282,18 @@ body {
 /* ── MODAL ──────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 999;
-  background: rgba(15, 23, 42, 0.55); backdrop-filter: blur(8px);
+  background: rgba(241, 245, 249, 0.72); backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex; align-items: center; justify-content: center; padding: 16px;
 }
+[data-theme='dark'] .modal-overlay {
+  background: rgba(15, 23, 42, 0.75);
+}
 .modal-content {
-  background: var(--card); border: 1px solid var(--card-border);
-  border-radius: 28px; padding: 34px; width: 100%; max-width: 520px;
-  max-height: 90vh; overflow-y: auto; box-shadow: 0 30px 80px rgba(0,0,0,0.3);
+  background: var(--card); border: 1.5px solid var(--card-border);
+  border-radius: 28px; padding: 32px; width: 100%; max-width: 520px;
+  max-height: 90vh; overflow-y: auto;
+  box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15), 0 0 0 1px rgba(79,70,229,0.06);
 }
 .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
 .modal-header h3 { font-size: 1.2rem; font-weight: 800; }
@@ -445,10 +450,26 @@ body {
 
 /* ── RESPONSIVE ─────────────────────────── */
 @media (max-width: 640px) {
-  .stats-grid { grid-template-columns: 1fr; }
-  .form-row { grid-template-columns: 1fr; }
-  .auth-card-premium { padding: 30px 24px; }
-  .glass-container { padding: 20px 16px; }
-  .modal-content { padding: 24px 20px; }
+  .app-wrapper { padding: 0 12px 80px !important; }
+  .header { padding: 12px 16px !important; border-radius: 18px !important; margin: 12px 0 16px !important; }
+  .stats-grid { grid-template-columns: 1fr !important; gap: 12px !important; margin-bottom: 18px !important; }
+  .stat-card { padding: 18px 16px !important; border-radius: 18px !important; }
+  .stat-value { font-size: 1.45rem !important; }
+  .form-row { grid-template-columns: 1fr !important; }
+  .auth-card-premium { padding: 26px 20px !important; }
+  .glass-container { padding: 18px 14px !important; border-radius: 20px !important; }
+  .modal-overlay { padding: 12px !important; }
+  .modal-content { padding: 22px 18px !important; border-radius: 22px !important; max-height: 94vh !important; }
   .nav-tab { flex: 0 0 auto !important; font-size: 0.82rem !important; padding: 9px 14px !important; }
+  .section-header { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
+  .section-header .btn-primary,
+  .section-header .btn-secondary { width: 100% !important; justify-content: center !important; }
+  .module-tabs { gap: 4px !important; padding: 4px !important; }
+  .module-tab { padding: 8px 14px !important; font-size: 0.8rem !important; }
+  .client-master-detail,
+  .dashboard-two-cols { grid-template-columns: 1fr !important; gap: 16px !important; }
+}
+
+@media (min-width: 641px) and (max-width: 960px) {
+  .stats-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 14px !important; }
 }
