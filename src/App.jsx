@@ -464,21 +464,95 @@ export default function App() {
     setModalType('editProduct'); setModal(true);
   };
 
-  /* ── AI Chat (Darija Assistant) ───────────── */
-  const handleSend = async () => {
-    if (!chatInput.trim() || isBotTyping) return;
-    const content = chatInput.trim();
+  /* ── AI Chat Assistant (100% Français Professionnel) ───────────── */
+  const handleClearChat = async () => {
+    const result = await Swal.fire({
+      title: 'Effacer la conversation ?',
+      text: 'Tous les messages seront définitivement supprimés.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: 'Oui, effacer',
+      cancelButtonText: 'Annuler'
+    });
+
+    if (result.isConfirmed) {
+      setMessages([]);
+      try {
+        if (session?.user?.id) {
+          await supabase.from('messages').delete().eq('user_id', session.user.id);
+        }
+        await supabase.from('messages').delete().neq('id', 0);
+      } catch (e) {
+        console.warn('Error clearing messages:', e);
+      }
+      Swal.fire({ icon: 'success', title: 'Conversation effacée !', timer: 1000, showConfirmButton: false });
+    }
+  };
+
+  const handleDeleteMessage = async (msgId) => {
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+    try {
+      await supabase.from('messages').delete().eq('id', msgId);
+    } catch (e) {
+      console.warn('Error deleting message:', e);
+    }
+  };
+
+  const handleSend = async (customPrompt) => {
+    const textToSend = typeof customPrompt === 'string' ? customPrompt : chatInput;
+    if (!textToSend.trim() || isBotTyping) return;
+    const content = textToSend.trim();
     setChatInput('');
 
-    const userMsg = { id: Date.now(), sender: 'customer', content };
+    let userMsgId = Date.now();
+    try {
+      const { data } = await supabase.from('messages').insert([{ user_id: session.user.id, sender: 'customer', content }]).select().single();
+      if (data?.id) userMsgId = data.id;
+    } catch {
+      supabase.from('messages').insert([{ user_id: session.user.id, sender: 'customer', content }]).then(() => {});
+    }
+
+    const userMsg = { id: userMsgId, sender: 'customer', content, created_at: new Date().toISOString() };
     setMessages(prev => [...prev, userMsg]);
-    supabase.from('messages').insert([{ user_id: session.user.id, sender: 'customer', content }]).then(() => {});
 
     setIsBotTyping(true);
     try {
-      const productsInfo = products.map(p => `${p.nom}(stock:${p.stock_qty}, cout:${p.prix_unitaire}DA)`).join(', ');
-      const ctx = `Tu es un assistant commercial intelligent et multilingue pour BRASTI, une application de gestion de production et vente au Maroc.
-Chiffre d'affaires: ${totalVentes.toFixed(0)} DA | Bénéfice: ${benefice.toFixed(0)} DA | Dettes: ${totalDettes.toFixed(0)} DA | Nb ventes: ${ventes.length} | Stock: ${productsInfo || 'aucun'}`;
+      const totalArticlesVendus = ventes.reduce((s, v) => s + (+v.quantite || 1), 0);
+      const nbVentes = ventes.length;
+
+      // Group sales by product
+      const topProductsMap = {};
+      ventes.forEach(v => {
+        const nom = v.nom || 'Produit';
+        topProductsMap[nom] = (topProductsMap[nom] || 0) + (+v.quantite || 1);
+      });
+      const topProductsList = Object.entries(topProductsMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([nom, qte]) => `• **${nom}** : ${qte} unité(s)`)
+        .join('\n');
+
+      const productsInfo = products.map(p => `${p.nom} (stock: ${p.stock_qty}, coût: ${p.prix_unitaire} DA)`).join(', ');
+
+      const ctx = `Tu es l'assistant commercial et financier intelligent de BRASTI (application de gestion de production, stocks et ventes).
+DONNÉES EN TEMPS RÉEL :
+- Chiffre d'affaires total : ${totalVentes.toFixed(0)} DA
+- Total des coûts/achats : ${totalAchats.toFixed(0)} DA
+- Bénéfice net actuel : ${benefice.toFixed(0)} DA
+- Nombre d'opérations de vente : ${nbVentes}
+- Total d'articles vendus : ${totalArticlesVendus} unités
+- Total des dettes/créances clients : ${totalDettes.toFixed(0)} DA
+- Stock produits : ${productsInfo || 'aucun produit'}
+- Top ventes :
+${topProductsList || 'aucune vente'}
+
+CONSIGNES STRICTES :
+1. Réponds EXCLUSIVEMENT en français clair, élégant et professionnel.
+2. N'utilise JAMAIS de darija ni de termes en arabe.
+3. Sois précis, donne les chiffres réels ci-dessus.
+4. Structure ta réponse avec des puces.`;
 
       let botContent = null;
       try {
@@ -486,33 +560,90 @@ Chiffre d'affaires: ${totalVentes.toFixed(0)} DA | Bénéfice: ${benefice.toFixe
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content, prompt: ctx }),
-          signal: AbortSignal.timeout(8000)
+          signal: AbortSignal.timeout(6000)
         });
         if (res.ok) {
           const d = await res.json();
-          botContent = d.result || d.response || d.message || null;
+          const raw = d.result || d.response || d.message;
+          if (raw && typeof raw === 'string' && raw.length > 5 && !raw.toLowerCase().includes('walou') && !raw.toLowerCase().includes('dyalek')) {
+            botContent = raw;
+          }
         }
       } catch {}
 
+      // Fallback intelligent en Français
       if (!botContent) {
         const q = content.toLowerCase();
-        if (q.includes('rbh') || q.includes('ربح') || q.includes('bénéfice'))
-          botContent = `💰 Rbah dyalek: **${benefice.toFixed(0)} DA** 🎉`;
-        else if (q.includes('bi3') || q.includes('بيع') || q.includes('vente'))
-          botContent = `📊 Total dyal ventes: **${totalVentes.toFixed(0)} DA** (Transactions: ${ventes.length})`;
-        else if (q.includes('dyn') || q.includes('دين') || q.includes('dette') || q.includes('credit'))
-          botContent = `⚠️ Dyn li baqi: **${totalDettes.toFixed(0)} DA**`;
-        else if (q.includes('stok') || q.includes('stock') || q.includes('makhzen'))
-          botContent = `📦 Stock dyalek:\n${products.map(p => `• ${p.nom}: ${p.stock_qty} unités`).join('\n') || 'Walou f stock'}`;
-        else
-          botContent = `🤖 Mrhba bik! Ventes: ${totalVentes.toFixed(0)} DA | Bénéfice: ${benefice.toFixed(0)} DA | Dettes: ${totalDettes.toFixed(0)} DA`;
+
+        // Quantité de produits vendus ("chhal mn mntoj tba3", "combien de produits vendus", etc.)
+        if (q.includes('produit') || q.includes('mntoj') || q.includes('article') || q.includes('combien') || q.includes('quantite') || q.includes('chhal') || q.includes('nb')) {
+          botContent = `📊 **Statistiques des articles vendus :**\n\n` +
+            `• **Total d'articles vendus :** **${totalArticlesVendus} unités** au total\n` +
+            `• **Nombre d'opérations de vente :** **${nbVentes} vente(s)**\n` +
+            `• **Chiffre d'affaires réalisé :** **${totalVentes.toFixed(0)} DA**\n\n` +
+            (topProductsList ? `🏆 **Détail par produit :**\n${topProductsList}` : `Aucune vente enregistrée pour le moment.`);
+        }
+        // Bénéfice / Profit / Marge
+        else if (q.includes('rbh') || q.includes('profit') || q.includes('bénéfice') || q.includes('benefice') || q.includes('marge') || q.includes('gain')) {
+          botContent = `💰 **Bénéfice Net Actuel :**\n\n` +
+            `• **Bénéfice net :** **${benefice.toFixed(0)} DA**\n` +
+            `• **Chiffre d'affaires :** ${totalVentes.toFixed(0)} DA\n` +
+            `• **Total achats et dépenses :** ${totalAchats.toFixed(0)} DA\n\n` +
+            (benefice >= 0 ? `✅ Votre activité est rentable avec un résultat positif.` : `⚠️ Vos dépenses dépassent actuellement vos recettes.`);
+        }
+        // Ventes
+        else if (q.includes('bi3') || q.includes('vente') || q.includes('chiffre') || q.includes('ca')) {
+          botContent = `📈 **Rapport du Chiffre d'Affaires :**\n\n` +
+            `• **Chiffre d'affaires :** **${totalVentes.toFixed(0)} DA**\n` +
+            `• **Nombre de ventes :** ${nbVentes}\n` +
+            `• **Volume total vendu :** ${totalArticlesVendus} unités`;
+        }
+        // Dettes / Crédits
+        else if (q.includes('dyn') || q.includes('dette') || q.includes('credit') || q.includes('créance') || q.includes('payer') || q.includes('reglement')) {
+          botContent = `⚠️ **Créances & Dettes Clients :**\n\n` +
+            `• **Total des impayés clients :** **${totalDettes.toFixed(0)} DA**\n\n` +
+            (totalDettes > 0 ? `Consultez l'onglet **Clients** ou **Règlements** pour effectuer les relances.` : `✨ Parfait ! Aucun impayé en attente.`);
+        }
+        // Stock
+        else if (q.includes('stok') || q.includes('stock') || q.includes('inventaire') || q.includes('quantité')) {
+          const alertes = products.filter(p => p.stock_qty <= 5);
+          botContent = `📦 **État de l'Inventaire :**\n\n` +
+            (products.length > 0 ? products.map(p => `• **${p.nom}** : ${p.stock_qty} unité(s) (${p.stock_qty <= 5 ? '⚠️ Stock faible' : '✅ En stock'})`).join('\n') : `Aucun produit dans l'inventaire.`) +
+            (alertes.length > 0 ? `\n\n⚠️ **${alertes.length} produit(s)** nécessitent un réapprovisionnement rapide.` : '');
+        }
+        // Salutations
+        else if (q.includes('bonjour') || q.includes('salut') || q.includes('hello') || q.includes('hi') || q.includes('coucou') || q.includes('aide')) {
+          botContent = `👋 **Bonjour !** Je suis l'assistant intelligent de votre plateforme BRASTI.\n\n` +
+            `Je peux analyser vos données financières en direct :\n` +
+            `• Ventes et total d'articles vendus\n` +
+            `• Bénéfice net et chiffre d'affaires\n` +
+            `• Alertes stock et inventaire\n` +
+            `• Suivi des dettes et règlements clients\n\n` +
+            `Que souhaitez-vous vérifier aujourd'hui ?`;
+        }
+        // Vue d'ensemble
+        else {
+          botContent = `🤖 **Synthèse de votre activité :**\n\n` +
+            `• **Chiffre d'affaires :** **${totalVentes.toFixed(0)} DA** (${nbVentes} ventes)\n` +
+            `• **Articles vendus :** **${totalArticlesVendus} unités**\n` +
+            `• **Bénéfice net :** **${benefice.toFixed(0)} DA**\n` +
+            `• **Dettes clients :** **${totalDettes.toFixed(0)} DA**\n\n` +
+            `Posez-moi une question précise (ex: *"Combien de produits vendus ?"*, *"Quel est le bénéfice ?"*, *"État du stock"*).`;
+        }
       }
 
-      const botMsg = { id: Date.now() + 1, sender: 'admin', content: botContent, is_bot: true };
+      let botMsgId = Date.now() + 1;
+      try {
+        const { data } = await supabase.from('messages').insert([{ user_id: session.user.id, sender: 'admin', content: botContent }]).select().single();
+        if (data?.id) botMsgId = data.id;
+      } catch {
+        supabase.from('messages').insert([{ user_id: session.user.id, sender: 'admin', content: botContent }]).then(() => {});
+      }
+
+      const botMsg = { id: botMsgId, sender: 'admin', content: botContent, is_bot: true, created_at: new Date().toISOString() };
       setMessages(prev => [...prev, botMsg]);
-      supabase.from('messages').insert([{ user_id: session.user.id, sender: 'admin', content: botContent }]).then(() => {});
     } catch {
-      setMessages(prev => [...prev, { id: Date.now() + 1, sender: 'admin', content: 'Service AI temporairement indisponible.', is_bot: true }]);
+      setMessages(prev => [...prev, { id: Date.now() + 1, sender: 'admin', content: "Service assistant momentanément indisponible.", is_bot: true, created_at: new Date().toISOString() }]);
     } finally {
       setIsBotTyping(false);
     }
@@ -804,53 +935,220 @@ Chiffre d'affaires: ${totalVentes.toFixed(0)} DA | Bénéfice: ${benefice.toFixe
           </div>
         )}
 
-        {/* ── 13. DARIJA AI CHAT ORIGINAL ──────────────────────────── */}
+        {/* ── 13. AI CHAT ASSISTANT (FRANÇAIS PROFESSIONNEL) ───────────── */}
         {activeTab === 'chat' && (
-          <div className="glass-container animate-enter" style={{ padding: 0 }}>
-            <div className="chat-container">
+          <div className="glass-container animate-enter" style={{ padding: 0, overflow: 'hidden' }}>
+            <div className="chat-window-card">
+              {/* Header */}
+              <div className="chat-header-bar">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div className="chat-avatar-ai">
+                    🤖
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--text)' }}>Assistant BRASTI</h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: '#10b981', fontWeight: 700 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
+                      En ligne · Intelligence de gestion
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button 
+                    onClick={handleClearChat}
+                    className="btn-clear-chat"
+                    title="Effacer toute la conversation"
+                  >
+                    <Trash2 size={15} />
+                    <span>Effacer le chat</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Messages Body */}
               <div className="chat-messages">
-                {messages.length === 0 && (
-                  <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>
-                    <p style={{ fontWeight: 700 }}>🤖 Assistant Intelligent BRASTI</p>
-                    <small>Posez vos questions en Darija ou en Français (ex: "Shhal rbhna ?", "Wach kayn stock ?")</small>
+                {messages.length === 0 ? (
+                  <div className="chat-empty-intro">
+                    <div style={{ fontSize: '3rem', marginBottom: 12 }}>🤖</div>
+                    <h4 style={{ fontWeight: 800, fontSize: '1.15rem', color: 'var(--text)', margin: '0 0 6px' }}>
+                      Comment puis-je vous aider aujourd'hui ?
+                    </h4>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.88rem', maxWidth: 440, margin: '0 auto 20px', lineHeight: 1.5 }}>
+                      Posez vos questions sur vos ventes, votre stock, vos bénéfices et la gestion de votre activité.
+                    </p>
+
+                    {/* Quick suggestion chips */}
+                    <div className="chat-suggestion-chips">
+                      {[
+                        { label: '📊 Combien de produits vendus ?', query: 'Combien de produits vendus au total ?' },
+                        { label: '💰 Quel est mon bénéfice net ?', query: 'Quel est mon bénéfice net actuel ?' },
+                        { label: '📦 État du stock disponible', query: 'Quel est l\'état actuel du stock ?' },
+                        { label: '⚠️ Total des dettes clients', query: 'Quel est le montant total des dettes clients ?' },
+                      ].map((chip, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          className="chat-chip-btn"
+                          onClick={() => handleSend(chip.query)}
+                        >
+                          {chip.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  messages.map(m => (
+                    <div 
+                      key={m.id} 
+                      className={`message-wrapper ${m.sender === 'customer' ? 'msg-user' : 'msg-bot'}`}
+                    >
+                      {m.sender !== 'customer' && (
+                        <div className="msg-avatar-icon">🤖</div>
+                      )}
+
+                      <div className="msg-bubble">
+                        <div className="msg-content" style={{ whiteSpace: 'pre-line' }}>
+                          {m.content}
+                        </div>
+                        <div className="msg-footer">
+                          {m.created_at && (
+                            <span className="msg-time">
+                              {format(new Date(m.created_at), 'HH:mm')}
+                            </span>
+                          )}
+                          <button 
+                            className="msg-delete-btn"
+                            onClick={() => handleDeleteMessage(m.id)}
+                            title="Supprimer ce message"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {m.sender === 'customer' && (
+                        <div className="msg-avatar-icon user-avatar">👤</div>
+                      )}
+                    </div>
+                  ))
+                )}
+
+                {isBotTyping && (
+                  <div className="message-wrapper msg-bot">
+                    <div className="msg-avatar-icon">🤖</div>
+                    <div className="msg-bubble typing-bubble">
+                      <span className="dot" />
+                      <span className="dot" />
+                      <span className="dot" />
+                    </div>
                   </div>
                 )}
-                {messages.map(m => (
-                  <div key={m.id} className={`message ${m.sender === 'customer' ? 'customer' : 'admin'}`}>
-                    {m.content}
-                  </div>
-                ))}
-                {isBotTyping && <div className="message admin">En train d'écrire...</div>}
                 <div ref={chatEndRef} />
               </div>
+
+              {/* Chat Input */}
               <div className="chat-input-area">
                 <input 
                   type="text" 
-                  className="form-control" 
-                  placeholder="Écrivez votre message..." 
+                  className="form-control chat-input" 
+                  placeholder="Posez votre question (ex: Combien de produits vendus ?)..." 
                   value={chatInput} 
                   onChange={e => setChatInput(e.target.value)} 
                   onKeyDown={e => e.key === 'Enter' && handleSend()} 
+                  disabled={isBotTyping}
                 />
-                <button className="btn-primary" onClick={handleSend}><Send size={16} /></button>
+                <button 
+                  className="btn-primary btn-chat-send" 
+                  onClick={() => handleSend()}
+                  disabled={isBotTyping || !chatInput.trim()}
+                >
+                  <Send size={18} />
+                </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* ── 14. DEV PROFILE ORIGINAL ──────────────────────────────── */}
+        {/* ── 14. DEV PROFILE (Hamza Amirni) ────────────────────────── */}
         {activeTab === 'dev' && (
-          <div className="animate-enter">
-            <div className="glass-container" style={{ textAlign: 'center', padding: 40 }}>
-              <img src="/logo.png" alt="Brasti" style={{ width: 80, height: 80, margin: '0 auto 16px', borderRadius: 20, objectFit: 'contain' }} onError={e => e.target.style.display='none'} />
-              <h2 style={{ fontWeight: 900, fontSize: '1.8rem', color: 'var(--primary)', marginBottom: 8 }}>Brasti ERP</h2>
-              <p style={{ color: 'var(--muted)', maxWidth: 500, margin: '0 auto 20px', fontSize: '0.95rem' }}>
-                Plateforme complète de gestion de production, stocks, formules, ventes, trésorerie et personnel.
-              </p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <a href="https://github.com/HamzabAmirni1/Gestion-des-achats-hsabi2" target="_blank" rel="noopener noreferrer" className="btn-primary" style={{ textDecoration: 'none' }}>
-                  Voir sur GitHub
-                </a>
+          <div className="animate-enter" style={{ padding: '0 0 40px' }}>
+            {/* Hero Card */}
+            <div style={{
+              background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%)',
+              borderRadius: 28, padding: '40px 28px 32px', textAlign: 'center',
+              marginBottom: 20, position: 'relative', overflow: 'hidden',
+              boxShadow: '0 20px 60px rgba(79,70,229,0.35)'
+            }}>
+              {/* Decorative circles */}
+              <div style={{ position:'absolute', top:-40, right:-40, width:160, height:160, borderRadius:'50%', background:'rgba(255,255,255,0.06)' }} />
+              <div style={{ position:'absolute', bottom:-30, left:-30, width:120, height:120, borderRadius:'50%', background:'rgba(255,255,255,0.06)' }} />
+
+              <div style={{ position:'relative', zIndex:1 }}>
+                <div style={{ width:100, height:100, borderRadius:'50%', margin:'0 auto 16px', border:'4px solid rgba(255,255,255,0.5)', overflow:'hidden', background:'white', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <img src="/logo.png" alt="Hamza Amirni" style={{ width:'100%', height:'100%', objectFit:'cover' }} onError={e => { e.target.src = 'https://ui-avatars.com/api/?name=Hamza+Amirni&background=4f46e5&color=fff'; }} />
+                </div>
+                <h2 style={{ color:'white', fontWeight:900, fontSize:'1.6rem', margin:'0 0 6px', letterSpacing:'-0.5px' }}>Hamza Amirni</h2>
+                <p style={{ color:'rgba(255,255,255,0.85)', fontSize:'0.95rem', margin:'0 0 20px', fontWeight:500 }}>Full-Stack Developer · Créateur de Brasti</p>
+                <div style={{ display:'flex', justifyContent:'center', gap:10, flexWrap:'wrap' }}>
+                  {['React', 'Node.js', 'Supabase', 'PWA', 'Python'].map(skill => (
+                    <span key={skill} style={{ padding:'5px 14px', background:'rgba(255,255,255,0.18)', borderRadius:30, color:'white', fontSize:'0.78rem', fontWeight:700, backdropFilter:'blur(10px)', border:'1px solid rgba(255,255,255,0.25)' }}>{skill}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Stats Row */}
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
+              {[
+                { emoji:'💻', label:'Apps créées', value:'10+' },
+                { emoji:'⭐', label:'Projets livrés', value:'20+' },
+                { emoji:'🚀', label:'Années exp.', value:'3+' },
+              ].map(s => (
+                <div key={s.label} style={{ background:'var(--card)', borderRadius:20, padding:'18px 12px', textAlign:'center', border:'1.5px solid var(--card-border)', boxShadow:'0 4px 16px rgba(0,0,0,0.06)' }}>
+                  <div style={{ fontSize:'1.6rem', marginBottom:4 }}>{s.emoji}</div>
+                  <div style={{ fontWeight:900, fontSize:'1.3rem', color:'var(--primary)' }}>{s.value}</div>
+                  <div style={{ fontSize:'0.72rem', color:'var(--muted)', fontWeight:600, marginTop:2 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Social Links & Accounts */}
+            <div style={{ background:'var(--card)', borderRadius:24, padding:'24px 20px', border:'1.5px solid var(--card-border)', marginBottom:16, boxShadow:'0 4px 20px rgba(0,0,0,0.06)' }}>
+              <h4 style={{ fontWeight:800, marginBottom:16, fontSize:'0.95rem', color:'var(--text)', letterSpacing:'-0.3px' }}>🌐 Réseaux Sociaux & Contacts</h4>
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {[
+                  { label:'Portfolio',   icon:'🌐', url:'https://hamzaamirni.netlify.app',    color:'#4f46e5', desc:'Voir mes projets & réalisations' },
+                  { label:'Instagram',   icon:'📷', url:'https://instagram.com/hamza_amirni_01', color:'#e1306c', desc:'@hamza_amirni_01' },
+                  { label:'YouTube',     icon:'🎥', url:'https://www.youtube.com/@Hamzaamirni01', color:'#ff0000', desc:'Tutoriels & contenus' },
+                  { label:'WhatsApp',    icon:'💬', url:'https://whatsapp.com/channel/0029ValXRoHCnA7yKopcrn1p', color:'#25d366', desc:'Canal officiel WhatsApp' },
+                  { label:'Facebook',    icon:'📘', url:'https://www.facebook.com/profile.php?id=61564527797752', color:'#1877f2', desc:'Page Facebook' },
+                  { label:'Telegram',    icon:'✈️', url:'https://t.me/hamzaamirni',           color:'#229ED9', desc:'@hamzaamirni' },
+                ].map(link => (
+                  <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer"
+                    style={{ display:'flex', alignItems:'center', gap:14, padding:'13px 16px', borderRadius:16, background:`${link.color}0d`, border:`1.5px solid ${link.color}22`, textDecoration:'none', transition:'all 0.2s' }}
+                    onMouseEnter={e => e.currentTarget.style.transform='translateX(4px)'}
+                    onMouseLeave={e => e.currentTarget.style.transform='translateX(0)'}
+                  >
+                    <span style={{ fontSize:'1.3rem', width:38, height:38, display:'flex', alignItems:'center', justifyContent:'center', background:`${link.color}18`, borderRadius:12 }}>{link.icon}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, color:'var(--text)', fontSize:'0.9rem' }}>{link.label}</div>
+                      <div style={{ fontSize:'0.75rem', color:'var(--muted)', marginTop:1 }}>{link.desc}</div>
+                    </div>
+                    <span style={{ color:link.color, fontWeight:800, fontSize:'1rem' }}>→</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            {/* App Info sans GitHub */}
+            <div style={{ background:'linear-gradient(135deg, rgba(79,70,229,0.08), rgba(124,58,237,0.06))', borderRadius:24, padding:'22px 20px', border:'1.5px solid rgba(79,70,229,0.15)', textAlign:'center' }}>
+              <div style={{ fontSize:'2rem', marginBottom:8 }}>🏭</div>
+              <h4 style={{ fontWeight:900, color:'var(--text)', marginBottom:6 }}>Brasti Platform</h4>
+              <p style={{ color:'var(--muted)', fontSize:'0.83rem', lineHeight:1.6, maxWidth: 480, margin: '0 auto 14px' }}>Application complète de gestion de production, stock et vente · Conçue pour les entreprises en pleine croissance.</p>
+              <div style={{ display:'flex', justifyContent:'center', gap:10, flexWrap:'wrap' }}>
+                <a href="https://brasti.netlify.app" target="_blank" rel="noopener noreferrer" style={{ padding:'10px 20px', background:'var(--primary)', color:'white', borderRadius:14, fontSize:'0.82rem', fontWeight:800, textDecoration:'none' }}>⚡ Ouvrir l'application</a>
+                <a href="https://hamzaamirni.netlify.app" target="_blank" rel="noopener noreferrer" style={{ padding:'10px 20px', background:'rgba(79,70,229,0.1)', color:'var(--primary)', border:'1.5px solid rgba(79,70,229,0.2)', borderRadius:14, fontSize:'0.82rem', fontWeight:800, textDecoration:'none' }}>💼 Mon Portfolio</a>
               </div>
             </div>
           </div>
