@@ -1,0 +1,56 @@
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    # Runs every 2 days at 06:00 UTC (Supabase pauses after 7 days of inactivity)
+    - cron: '0 6 */2 * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/supabase-keep-alive.yml'
+
+jobs:
+  keep-alive:
+    name: Ping Supabase Database
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST and Auth endpoints
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://vgqrasazquaoqskrsryv.supabase.co' }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || 'sb_publishable_ug91i0ItCpe0ord5YKAaAg_wY4dMrQM' }}
+        run: |
+          echo "=========================================="
+          echo " Pinging Supabase to prevent project pause"
+          echo " Target: $SUPABASE_URL"
+          echo " Date: $(date -u)"
+          echo "=========================================="
+
+          # 1. Ping PostgREST Database API (executes a query against postgres)
+          echo "Querying Database table via REST API..."
+          DB_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: $SUPABASE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_KEY" \
+            "$SUPABASE_URL/rest/v1/products?select=id&limit=1")
+
+          echo "Database HTTP Status: $DB_STATUS"
+
+          # 2. Ping Auth Health
+          echo "Checking Auth service..."
+          AUTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: $SUPABASE_KEY" \
+            "$SUPABASE_URL/auth/v1/health")
+
+          echo "Auth HTTP Status: $AUTH_STATUS"
+
+          # Verify success
+          if [ "$DB_STATUS" -eq 200 ] || [ "$DB_STATUS" -eq 206 ]; then
+            echo " SUCCESS: Supabase project is active! Inactivity timer has been reset."
+          else
+            echo "❌ Error: Received HTTP Status $DB_STATUS from Supabase."
+            if [ "$DB_STATUS" -eq 503 ]; then
+              echo "⚠️ Project appears to be PAUSED. Please go to https://supabase.com/dashboard and click 'Restore project'."
+            fi
+            exit 1
+          fi

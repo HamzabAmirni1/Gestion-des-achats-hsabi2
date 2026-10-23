@@ -3,7 +3,7 @@ import { Download, Sun, RefreshCw, LogOut, Send, X, Plus, Printer, Mail, Lock, T
 import { format } from 'date-fns';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { supabase } from './supabaseClient';
+import { supabase, pingSupabase } from './supabaseClient';
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import Swal from 'sweetalert2';
@@ -25,6 +25,7 @@ export default function App() {
   const [products, setProducts]   = useState([]);
   const [messages, setMessages]   = useState([]);
   const [loading, setLoading]     = useState(true);
+  const [dbError, setDbError]     = useState(null);
   const [isModalOpen, setModal]   = useState(false);
   const [modalType, setModalType] = useState('vente');
   const [isSubmitting, setSubmit] = useState(false);
@@ -43,6 +44,19 @@ export default function App() {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => subscription.unsubscribe();
+  }, []);
+
+  /* ── Supabase Keep-Alive (prevent free tier auto-pause) ──── */
+  useEffect(() => {
+    // Ping Supabase every 5 days (7 days = pause, so 5 is safe)
+    const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+    const interval = setInterval(async () => {
+      const ok = await pingSupabase();
+      console.log(`[Keep-Alive] Supabase ping: ${ok ? '✅ actif' : '❌ erreur'}`);
+    }, FIVE_DAYS_MS);
+    // Also ping on app load to reset inactivity timer
+    pingSupabase().then(ok => console.log(`[Keep-Alive] Démarrage - Supabase: ${ok ? 'actif' : 'erreur'}`));
+    return () => clearInterval(interval);
   }, []);
 
   /* ── PWA Install ─────────────────────────── */
