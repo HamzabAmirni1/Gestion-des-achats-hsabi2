@@ -125,6 +125,7 @@ export default function App() {
 
   /* ── Computed stats ──────────────────────── */
   const totalVentes  = useMemo(() => ventes.reduce((s, v) => s + (v.total_prix || v.prix * v.quantite || 0), 0), [ventes]);
+  const totalAchats  = useMemo(() => achats.reduce((s, a) => s + (a.prix * a.quantite || 0), 0), [achats]);
   const totalDettes  = useMemo(() => ventes.filter(v => !v.est_paye).reduce((s, v) => s + (v.total_prix || v.prix * v.quantite || 0), 0), [ventes]);
   const benefice     = useMemo(() => ventes.reduce((s, v) => {
     const p = products.find(p => p.id === v.product_id);
@@ -635,8 +636,20 @@ CONSIGNES STRICTES :
 
       const botMsg = { id: botMsgId, sender: 'admin', content: botContent, is_bot: true, created_at: new Date().toISOString() };
       setMessages(prev => [...prev, botMsg]);
-    } catch {
-      setMessages(prev => [...prev, { id: Date.now() + 1, sender: 'admin', content: "Service assistant momentanément indisponible.", is_bot: true, created_at: new Date().toISOString() }]);
+    } catch (err) {
+      console.error('Chat error:', err);
+      const fallbackMsg = {
+        id: Date.now() + 1,
+        sender: 'admin',
+        content: `👋 **Bonjour !** Je suis l'assistant intelligent de votre plateforme BRASTI.\n\n` +
+          `• **Chiffre d'affaires :** ${(totalVentes || 0).toFixed(0)} DA\n` +
+          `• **Bénéfice net :** ${(benefice || 0).toFixed(0)} DA\n` +
+          `• **Créances / Dettes :** ${(totalDettes || 0).toFixed(0)} DA\n\n` +
+          `Que souhaitez-vous savoir concernant votre activité ?`,
+        is_bot: true,
+        created_at: new Date().toISOString()
+      };
+      setMessages(prev => [...prev, fallbackMsg]);
     } finally {
       setIsBotTyping(false);
     }

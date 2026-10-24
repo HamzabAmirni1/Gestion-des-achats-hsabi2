@@ -23,6 +23,15 @@ export function cleanAIResponse(text) {
   return cleaned.trim();
 }
 
+// Safe cross-browser fetch with timeout (works on all mobile & desktop browsers)
+function safeFetch(url, options = {}, timeoutMs = 12000) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => {
+    try { ctrl.abort(); } catch (_) {}
+  }, timeoutMs);
+  return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(id));
+}
+
 /**
  * Main function to request AI response:
  * 1. Calls Netlify Serverless Function (Google Gemini Web StreamGenerate RPC)
@@ -31,16 +40,15 @@ export function cleanAIResponse(text) {
 export async function getGeminiReply(prompt, systemPrompt = '', history = []) {
   // 1. Try Netlify Serverless Function (Gemini Web)
   try {
-    const res = await fetch('/.netlify/functions/gemini', {
+    const res = await safeFetch('/.netlify/functions/gemini', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, systemPrompt, history }),
-      signal: AbortSignal.timeout(16000)
-    });
+      body: JSON.stringify({ prompt, systemPrompt, history })
+    }, 12000);
 
-    if (res.ok) {
+    if (res && res.ok) {
       const data = await res.json();
-      if (data?.reply && data.reply.trim().length > 1) {
+      if (data?.reply && typeof data.reply === 'string' && data.reply.trim().length > 1) {
         return cleanAIResponse(data.reply);
       }
     }
@@ -50,7 +58,7 @@ export async function getGeminiReply(prompt, systemPrompt = '', history = []) {
 
   // 2. Direct client-side Fallback (Pollinations with CORS support)
   try {
-    const res = await fetch('https://text.pollinations.ai/', {
+    const res = await safeFetch('https://text.pollinations.ai/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -61,13 +69,12 @@ export async function getGeminiReply(prompt, systemPrompt = '', history = []) {
         ],
         model: 'openai',
         temperature: 0.7
-      }),
-      signal: AbortSignal.timeout(10000)
-    });
+      })
+    }, 8000);
 
-    if (res.ok) {
+    if (res && res.ok) {
       const txt = await res.text();
-      if (txt && txt.trim().length > 1 && !txt.includes('<html>')) {
+      if (txt && typeof txt === 'string' && txt.trim().length > 1 && !txt.includes('<html>')) {
         return cleanAIResponse(txt);
       }
     }
