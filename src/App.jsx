@@ -23,6 +23,7 @@ import ReglementsModule from './components/reglements/ReglementsModule';
 import CaisseModule     from './components/caisse/CaisseModule';
 import ApportsModule    from './components/apports/ApportsModule';
 import PersonnelModule  from './components/personnel/PersonnelModule';
+import { getGeminiReply } from './services/aiService';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
@@ -554,22 +555,14 @@ CONSIGNES STRICTES :
 3. Sois précis, donne les chiffres réels ci-dessus.
 4. Structure ta réponse avec des puces.`;
 
-      let botContent = null;
-      try {
-        const res = await fetch('https://luminai.my.id/', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content, prompt: ctx }),
-          signal: AbortSignal.timeout(6000)
-        });
-        if (res.ok) {
-          const d = await res.json();
-          const raw = d.result || d.response || d.message;
-          if (raw && typeof raw === 'string' && raw.length > 5 && !raw.toLowerCase().includes('walou') && !raw.toLowerCase().includes('dyalek')) {
-            botContent = raw;
-          }
-        }
-      } catch {}
+      // Prepare conversation history
+      const history = messages.slice(-4).map(m => ({
+        role: m.sender === 'customer' ? 'user' : 'assistant',
+        content: m.content
+      }));
+
+      // Call Google Gemini Web / AI service
+      let botContent = await getGeminiReply(content, ctx, history);
 
       // Fallback intelligent en Français
       if (!botContent) {
