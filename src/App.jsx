@@ -1624,67 +1624,57 @@ RÈGLE D'OR DE LA LANGUE (TRÈS IMPORTANT) :
     <div className="app-wrapper">
       {/* Header */}
       <header className="header">
-        <div className="header-title">
-          <img src="/logo.png" alt="Brasti" style={{ height: 36, width: 36, objectFit: 'contain', marginRight: 10, verticalAlign: 'middle' }} onError={e => e.target.style.display='none'} />
-          <span style={{ verticalAlign: 'middle' }}>Brasti Platform</span>
-        </div>
-        <div className="header-actions">
-          {/* Avatar Profile Pill */}
+        <div className="header-top-row">
+          <div className="header-title">
+            <img src="/logo.png" alt="Brasti" className="header-logo" onError={e => e.target.style.display='none'} />
+            <span className="header-brand-name">Brasti Platform</span>
+          </div>
+
+          {/* Avatar Profile Pill (Top Right) */}
           <div 
             onClick={() => setIsProfileModalOpen(true)}
             title="Mon Profil & Photo de profil"
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              cursor: 'pointer', padding: '3px 12px 3px 4px',
-              borderRadius: 24, background: 'var(--card)',
-              border: '1.5px solid var(--card-border)',
-              transition: '0.2s',
-            }}
+            className="header-avatar-pill"
           >
             <div style={{ position: 'relative' }}>
               {userAvatar ? (
                 <img 
                   src={userAvatar} 
                   alt="Avatar" 
-                  style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', display: 'block', border: '1.5px solid var(--primary)' }} 
+                  className="header-avatar-img"
                 />
               ) : (
-                <div style={{
-                  width: 30, height: 30, borderRadius: '50%',
-                  background: checkAdmin(userRole) ? 'linear-gradient(135deg,#4f46e5,#7c3aed)' : 'linear-gradient(135deg,#0ea5e9,#06b6d4)',
-                  color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 800, fontSize: '0.8rem'
-                }}>
+                <div 
+                  className="header-avatar-placeholder" 
+                  style={{
+                    background: checkAdmin(userRole) ? 'linear-gradient(135deg,#4f46e5,#7c3aed)' : 'linear-gradient(135deg,#0ea5e9,#06b6d4)',
+                  }}
+                >
                   {(userProfile?.full_name || session?.user?.email || 'U')[0].toUpperCase()}
                 </div>
               )}
-              <span style={{
-                position: 'absolute', bottom: -2, right: -2,
-                background: '#4f46e5', color: 'white', borderRadius: '50%',
-                width: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '0.5rem', border: '1px solid white'
-              }}>📷</span>
+              <span className="header-avatar-badge">📷</span>
             </div>
-            <span style={{ fontSize: '0.78rem', fontWeight: 700, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span className="header-avatar-name">
               {userProfile?.full_name || session?.user?.email?.split('@')[0]}
             </span>
           </div>
+        </div>
 
+        <div className="header-actions">
           {/* Role badge */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '5px 12px', borderRadius: 20, fontSize: '0.74rem', fontWeight: 800,
-            background: checkAdmin(userRole) ? 'linear-gradient(135deg,#4f46e5,#7c3aed)' : 'linear-gradient(135deg,#0ea5e9,#06b6d4)',
-            color: 'white',
-          }}>
+          <div className={`header-role-badge ${checkAdmin(userRole) ? 'admin' : 'worker'}`}>
             {checkAdmin(userRole) ? '🛡️ Directeur' : '👷 Employé'}
           </div>
-          <button className="icon-btn" onClick={fetchData} title="Rafraîchir"><RefreshCw size={18} /></button>
-          {checkAdmin(userRole) && (
-            <button className="icon-btn" style={{ background: 'var(--primary)', color: 'white', border: 'none' }} onClick={generateFullReport} title="Télécharger Rapport PDF"><Download size={18} /></button>
-          )}
-          <button className="icon-btn" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')} title="Thème"><Sun size={18} /></button>
-          <button className="icon-btn" onClick={handleSignOut} title="Déconnexion"><LogOut size={18} /></button>
+
+          <div className="header-action-buttons">
+            <button className="icon-btn header-btn" onClick={fetchData} title="Rafraîchir"><RefreshCw size={16} /></button>
+            {checkAdmin(userRole) && (
+              <button className="icon-btn header-btn btn-pdf" onClick={generateFullReport} title="Télécharger Rapport PDF"><Download size={16} /></button>
+            )}
+            <button className="icon-btn header-btn" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')} title="Thème"><Sun size={16} /></button>
+            <button className="icon-btn header-btn btn-logout" onClick={handleSignOut} title="Déconnexion"><LogOut size={16} /></button>
+          </div>
         </div>
       </header>
 
