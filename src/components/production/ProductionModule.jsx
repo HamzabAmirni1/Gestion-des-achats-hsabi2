@@ -21,6 +21,8 @@ export default function ProductionModule({ session, theme, companyId }) {
     produit_nom: '',
     numero_lot: '',
     quantite_produite: 100,
+    emballage_id: '',
+    perte_qty: 0,
     cout_matiere: 0,
     cout_emballage: 0,
     cout_main_oeuvre: 0,
@@ -112,7 +114,7 @@ export default function ProductionModule({ session, theme, companyId }) {
           setProductions(prev => [{ ...payload, id: Date.now().toString() }, ...prev]);
         }
       } else {
-        // Augmenter le stock
+        // 1. Augmenter le stock de produits finis
         if (prodForm.produit_id) {
           const currentProd = produits.find(p => p.id === prodForm.produit_id);
           if (currentProd) {
@@ -120,19 +122,32 @@ export default function ProductionModule({ session, theme, companyId }) {
             await supabase.from('products').update({ stock_qty: newStock }).eq('id', prodForm.produit_id);
           }
         }
+
+        // 2. Déduire automatiquement l'emballage consommé du stock
+        if (prodForm.emballage_id) {
+          const emb = emballages.find(e => e.id === prodForm.emballage_id);
+          if (emb) {
+            const totalConsumed = (+prodForm.quantite_produite) + (+prodForm.perte_qty || 0);
+            const newEmbStock = Math.max(0, (+emb.stock_qty || 0) - totalConsumed);
+            await supabase.from('emballages').update({ stock_qty: newEmbStock }).eq('id', prodForm.emballage_id);
+          }
+        }
       }
 
       Swal.fire({
         icon: 'success',
         title: 'Production Enregistrée !',
-        html: `✅ <b>+${prodForm.quantite_produite} unités</b> de <b>${prodForm.produit_nom}</b><br/>🏷️ N° Lot : <b>${lotNum}</b>`,
-        timer: 2000, showConfirmButton: false
+        html: `✅ <b>+${prodForm.quantite_produite} unités</b> de <b>${prodForm.produit_nom}</b> ajoutées au stock<br/>
+          🏷️ N° Lot : <b>${lotNum}</b><br/>
+          ${prodForm.emballage_id ? '📦 Emballage consommé déduit du stock !' : ''}`,
+        timer: 2400, showConfirmButton: false
       });
 
       setIsProdModalOpen(false);
       setProdForm({
         produit_id: '', produit_nom: '', numero_lot: '',
-        quantite_produite: 100, cout_matiere: 0, cout_emballage: 0,
+        quantite_produite: 100, emballage_id: '', perte_qty: 0,
+        cout_matiere: 0, cout_emballage: 0,
         cout_main_oeuvre: 0, notes: '', date: format(new Date(), 'yyyy-MM-dd')
       });
       fetchData();
@@ -511,7 +526,44 @@ export default function ProductionModule({ session, theme, companyId }) {
                 <label>Quantité Fabriquée *</label>
                 <input type="number" min="1" required className="form-control"
                   value={prodForm.quantite_produite}
-                  onChange={e => setProdForm({ ...prodForm, quantite_produite: e.target.value })} />
+                  onChange={e => {
+                    const q = +e.target.value;
+                    const emb = emballages.find(x => x.id === prodForm.emballage_id);
+                    setProdForm(f => ({
+                      ...f,
+                      quantite_produite: e.target.value,
+                      cout_emballage: emb ? (q * (+emb.prix_unitaire || 0)).toFixed(2) : f.cout_emballage
+                    }));
+                  }} />
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>📦 Emballage Consommé (Déduit du stock)</label>
+                  <select className="form-control" value={prodForm.emballage_id}
+                    onChange={e => {
+                      const emb = emballages.find(x => x.id === e.target.value);
+                      const coutEstime = emb ? ((+prodForm.quantite_produite) * (+emb.prix_unitaire || 0)).toFixed(2) : prodForm.cout_emballage;
+                      setProdForm(f => ({
+                        ...f,
+                        emballage_id: e.target.value,
+                        cout_emballage: coutEstime
+                      }));
+                    }}>
+                    <option value="">-- Sans déduction emballage --</option>
+                    {emballages.map(emb => (
+                      <option key={emb.id} value={emb.id}>
+                        {emb.nom} (Stock: {emb.stock_qty} {emb.unite} | {emb.prix_unitaire} DA)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>⚠️ Pertes / Défauts (ضياع ونقص)</label>
+                  <input type="number" min="0" className="form-control" value={prodForm.perte_qty}
+                    onChange={e => setProdForm({ ...prodForm, perte_qty: e.target.value })}
+                    placeholder="Unités abîmées..." />
+                </div>
               </div>
 
               <div className="form-row">
