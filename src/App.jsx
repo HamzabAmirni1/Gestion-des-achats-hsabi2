@@ -1134,30 +1134,44 @@ CONSIGNES STRICTES :
                     })
                 )}
               </div>
-
-              {selectedDirector && (
-                <div className="selected-director-badge">
-                  <CheckCircle size={15} />
-                  <span>Directeur choisi : <strong>{selectedDirector.full_name || selectedDirector.email}</strong></span>
-                </div>
-              )}
             </div>
           )}
 
-          <div className="auth-group">
-            <label>Email</label>
-            <div className="auth-input-wrapper">
-              <Mail size={18} />
-              <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="votre@email.com" />
+          {authMode === 'reg' ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div className="auth-group">
+                <label>Email *</label>
+                <div className="auth-input-wrapper">
+                  <Mail size={16} />
+                  <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="votre@email.com" />
+                </div>
+              </div>
+              <div className="auth-group">
+                <label>Mot de passe *</label>
+                <div className="auth-input-wrapper">
+                  <Lock size={16} />
+                  <input type="password" required value={authPassword} onChange={e => setAuthPass(e.target.value)} placeholder="••••••••" />
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="auth-group">
-            <label>Mot de passe</label>
-            <div className="auth-input-wrapper">
-              <Lock size={18} />
-              <input type="password" required value={authPassword} onChange={e => setAuthPass(e.target.value)} placeholder="••••••••" />
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="auth-group">
+                <label>Email</label>
+                <div className="auth-input-wrapper">
+                  <Mail size={18} />
+                  <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="votre@email.com" />
+                </div>
+              </div>
+              <div className="auth-group">
+                <label>Mot de passe</label>
+                <div className="auth-input-wrapper">
+                  <Lock size={18} />
+                  <input type="password" required value={authPassword} onChange={e => setAuthPass(e.target.value)} placeholder="••••••••" />
+                </div>
+              </div>
+            </>
+          )}
           {authError && <p style={{ color: '#ef4444', fontSize: '0.85rem', marginBottom: 12 }}>{authError}</p>}
           <button className="btn-auth-submit" disabled={authLoading}>
             {authLoading ? '...' : authMode === 'login' 
