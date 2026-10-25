@@ -4,7 +4,8 @@ import { Truck, Plus, Search, Trash2, Edit2, Phone, Mail, DollarSign, Layers, Ch
 import Swal from 'sweetalert2';
 import { format } from 'date-fns';
 
-export default function AchatsModule({ session, theme }) {
+export default function AchatsModule({ session, theme, companyId }) {
+  const targetUid = companyId || session?.user?.id;
   const [activeTab, setActiveTab] = useState('achats'); // 'achats' | 'fournisseurs'
   const [achats, setAchats] = useState([]);
   const [fournisseurs, setFournisseurs] = useState([]);
@@ -38,17 +39,17 @@ export default function AchatsModule({ session, theme }) {
 
   useEffect(() => {
     fetchData();
-  }, [session]);
+  }, [session, targetUid]);
 
   const fetchData = async () => {
-    if (!session) return;
+    if (!session || !targetUid) return;
     setLoading(true);
     try {
       const [aRes, fRes, mRes, eRes] = await Promise.all([
-        supabase.from('achats').select('*').order('date', { ascending: false }),
-        supabase.from('fournisseurs').select('*').order('nom'),
-        supabase.from('matieres_premieres').select('*').order('nom'),
-        supabase.from('emballages').select('*').order('nom')
+        supabase.from('achats').select('*').eq('user_id', targetUid).order('date', { ascending: false }),
+        supabase.from('fournisseurs').select('*').eq('user_id', targetUid).order('nom'),
+        supabase.from('matieres_premieres').select('*').eq('user_id', targetUid).order('nom'),
+        supabase.from('emballages').select('*').eq('user_id', targetUid).order('nom')
       ]);
 
       setAchats(aRes.data || []);
@@ -85,7 +86,7 @@ export default function AchatsModule({ session, theme }) {
 
     try {
       const payload = {
-        user_id: session.user.id,
+        user_id: targetUid,
         nom: articleName, // compatibility with old schema
         article_nom: articleName,
         fournisseur_id: achatForm.fournisseur_id || null,
@@ -107,7 +108,7 @@ export default function AchatsModule({ session, theme }) {
       if (error) {
         // Fallback to original schema
         const safePayload = {
-          user_id: session.user.id,
+          user_id: targetUid,
           nom: articleName,
           quantite: +achatForm.quantite,
           prix: +achatForm.prix_unitaire,
@@ -135,7 +136,7 @@ export default function AchatsModule({ session, theme }) {
       if (achatForm.est_paye) {
         try {
           await supabase.from('caisse').insert([{
-            user_id: session.user.id,
+            user_id: targetUid,
             type: 'sortie',
             categorie: 'achat',
             montant: totalCalc,
@@ -162,7 +163,7 @@ export default function AchatsModule({ session, theme }) {
         await supabase.from('fournisseurs').update(fournForm).eq('id', editingFourn.id);
         Swal.fire({ icon: 'success', title: 'Fournisseur mis à jour', timer: 900, showConfirmButton: false });
       } else {
-        const { error } = await supabase.from('fournisseurs').insert([{ ...fournForm, user_id: session.user.id }]);
+        const { error } = await supabase.from('fournisseurs').insert([{ ...fournForm, user_id: targetUid }]);
         if (error) {
           setFournisseurs(prev => [...prev, { ...fournForm, id: Date.now().toString() }]);
         }
@@ -181,15 +182,23 @@ export default function AchatsModule({ session, theme }) {
   const handleDeleteAchat = async (id) => {
     const res = await Swal.fire({
       title: 'Supprimer cet achat ?',
+      text: 'Cette action est irréversible !',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
-      confirmButtonText: 'Supprimer'
+      cancelButtonText: 'Annuler',
+      confirmButtonText: 'Oui, supprimer'
     });
     if (res.isConfirmed) {
-      await supabase.from('achats').delete().eq('id', id);
-      setAchats(prev => prev.filter(a => a.id !== id));
-      Swal.fire({ icon: 'success', title: 'Supprimé', timer: 700, showConfirmButton: false });
+      try {
+        const { error } = await supabase.from('achats').delete().eq('id', id);
+        if (error) throw error;
+        setAchats(prev => prev.filter(a => a.id !== id));
+        Swal.fire({ icon: 'success', title: 'Achat supprimé !', timer: 800, showConfirmButton: false });
+        fetchData();
+      } catch (err) {
+        Swal.fire('Erreur', 'Impossible de supprimer: ' + err.message, 'error');
+      }
     }
   };
 

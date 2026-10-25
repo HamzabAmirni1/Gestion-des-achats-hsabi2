@@ -4,7 +4,8 @@ import { Factory, Plus, Beaker, Play, CheckCircle, Trash2, Calendar, DollarSign,
 import Swal from 'sweetalert2';
 import { format } from 'date-fns';
 
-export default function ProductionModule({ session, theme }) {
+export default function ProductionModule({ session, theme, companyId }) {
+  const targetUid = companyId || session?.user?.id;
   const [activeTab, setActiveTab] = useState('productions'); // 'productions' | 'recettes'
   const [productions, setProductions] = useState([]);
   const [recettes, setRecettes] = useState([]);
@@ -38,18 +39,18 @@ export default function ProductionModule({ session, theme }) {
 
   useEffect(() => {
     fetchData();
-  }, [session]);
+  }, [session, targetUid]);
 
   const fetchData = async () => {
-    if (!session) return;
+    if (!session || !targetUid) return;
     setLoading(true);
     try {
       const [prodRes, recRes, pRes, mRes, eRes] = await Promise.all([
-        supabase.from('productions').select('*').order('date', { ascending: false }),
-        supabase.from('recettes').select('*').order('nom'),
-        supabase.from('products').select('*').order('nom'),
-        supabase.from('matieres_premieres').select('*').order('nom'),
-        supabase.from('emballages').select('*').order('nom')
+        supabase.from('productions').select('*').eq('user_id', targetUid).order('date', { ascending: false }),
+        supabase.from('recettes').select('*').eq('user_id', targetUid).order('nom'),
+        supabase.from('products').select('*').eq('user_id', targetUid).order('nom'),
+        supabase.from('matieres_premieres').select('*').eq('user_id', targetUid).order('nom'),
+        supabase.from('emballages').select('*').eq('user_id', targetUid).order('nom')
       ]);
 
       setProductions(prodRes.data || []);
@@ -72,7 +73,7 @@ export default function ProductionModule({ session, theme }) {
 
     try {
       const payload = {
-        user_id: session.user.id,
+        user_id: targetUid,
         produit_id: prodForm.produit_id || null,
         produit_nom: prodForm.produit_nom,
         quantite_produite: +prodForm.quantite_produite,
@@ -119,7 +120,7 @@ export default function ProductionModule({ session, theme }) {
 
     try {
       const payload = {
-        user_id: session.user.id,
+        user_id: targetUid,
         nom: recetteForm.nom,
         produit_id: recetteForm.produit_id || null,
         description: recetteForm.description,
@@ -145,15 +146,18 @@ export default function ProductionModule({ session, theme }) {
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
-      confirmButtonText: 'Supprimer'
+      cancelButtonText: 'Annuler',
+      confirmButtonText: 'Oui, supprimer'
     });
     if (res.isConfirmed) {
       try {
-        await supabase.from('productions').delete().eq('id', id);
+        const { error } = await supabase.from('productions').delete().eq('id', id);
+        if (error) throw error;
         setProductions(prev => prev.filter(p => p.id !== id));
-        Swal.fire({ icon: 'success', title: 'Supprimé', timer: 800, showConfirmButton: false });
+        Swal.fire({ icon: 'success', title: 'Lot de production supprimé !', timer: 800, showConfirmButton: false });
+        fetchData();
       } catch (e) {
-        console.error(e);
+        Swal.fire('Erreur', 'Impossible de supprimer: ' + e.message, 'error');
       }
     }
   };

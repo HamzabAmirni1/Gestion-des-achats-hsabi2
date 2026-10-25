@@ -5,7 +5,8 @@ import Swal from 'sweetalert2';
 import { jsPDF } from 'jspdf';
 import { format } from 'date-fns';
 
-export default function VentesModule({ session, theme }) {
+export default function VentesModule({ session, theme, companyId }) {
+  const targetUid = companyId || session?.user?.id;
   const [ventes, setVentes] = useState([]);
   const [clients, setClients] = useState([]);
   const [products, setProducts] = useState([]);
@@ -30,16 +31,16 @@ export default function VentesModule({ session, theme }) {
 
   useEffect(() => {
     fetchData();
-  }, [session]);
+  }, [session, targetUid]);
 
   const fetchData = async () => {
-    if (!session) return;
+    if (!session || !targetUid) return;
     setLoading(true);
     try {
       const [vRes, cRes, pRes] = await Promise.all([
-        supabase.from('ventes').select('*').order('date', { ascending: false }),
-        supabase.from('clients').select('*').order('nom'),
-        supabase.from('products').select('*').order('nom')
+        supabase.from('ventes').select('*').eq('user_id', targetUid).order('date', { ascending: false }),
+        supabase.from('clients').select('*').eq('user_id', targetUid).order('nom'),
+        supabase.from('products').select('*').eq('user_id', targetUid).order('nom')
       ]);
 
       setVentes(vRes.data || []);
@@ -79,7 +80,7 @@ export default function VentesModule({ session, theme }) {
       const totalCalcule = (+form.quantite) * (+form.prix) * (1 - (+form.remise || 0) / 100);
 
       const payload = {
-        user_id: session.user.id,
+        user_id: targetUid,
         nom: form.nom,
         product_id: form.product_id || null,
         client_id: form.client_id || null,
@@ -98,7 +99,7 @@ export default function VentesModule({ session, theme }) {
       if (error) {
         // Fallback for original schema
         const safePayload = {
-          user_id: session.user.id,
+          user_id: targetUid,
           nom: form.nom,
           product_id: form.product_id || null,
           client_nom: form.client_nom || 'Client Particulier',
@@ -124,7 +125,7 @@ export default function VentesModule({ session, theme }) {
       if (form.est_paye) {
         try {
           await supabase.from('caisse').insert([{
-            user_id: session.user.id,
+            user_id: targetUid,
             type: 'entree',
             categorie: 'vente',
             montant: totalCalcule,
@@ -175,15 +176,23 @@ export default function VentesModule({ session, theme }) {
   const handleDelete = async (id) => {
     const res = await Swal.fire({
       title: 'Supprimer cette vente ?',
+      text: 'Cette action est irréversible !',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
-      confirmButtonText: 'Supprimer'
+      cancelButtonText: 'Annuler',
+      confirmButtonText: 'Oui, supprimer'
     });
     if (res.isConfirmed) {
-      await supabase.from('ventes').delete().eq('id', id);
-      setVentes(prev => prev.filter(v => v.id !== id));
-      Swal.fire({ icon: 'success', title: 'Supprimé', timer: 700, showConfirmButton: false });
+      try {
+        const { error } = await supabase.from('ventes').delete().eq('id', id);
+        if (error) throw error;
+        setVentes(prev => prev.filter(v => v.id !== id));
+        Swal.fire({ icon: 'success', title: 'Vente supprimée !', timer: 800, showConfirmButton: false });
+        fetchData();
+      } catch (err) {
+        Swal.fire('Erreur', 'Impossible de supprimer: ' + err.message, 'error');
+      }
     }
   };
 

@@ -3,7 +3,8 @@ import { supabase } from '../../supabaseClient';
 import { Package, Plus, Search, Edit2, Trash2, AlertTriangle, Barcode, TrendingUp, DollarSign, Tag, ArrowUpDown } from 'lucide-react';
 import Swal from 'sweetalert2';
 
-export default function ProduitsModule({ session, theme }) {
+export default function ProduitsModule({ session, theme, companyId }) {
+  const targetUid = companyId || session?.user?.id;
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -23,13 +24,13 @@ export default function ProduitsModule({ session, theme }) {
 
   useEffect(() => {
     fetchProducts();
-  }, [session]);
+  }, [session, targetUid]);
 
   const fetchProducts = async () => {
-    if (!session) return;
+    if (!session || !targetUid) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase.from('products').select('*').order('nom');
+      const { data, error } = await supabase.from('products').select('*').eq('user_id', targetUid).order('nom');
       if (error) throw error;
       setProducts(data || []);
     } catch (e) {
@@ -86,14 +87,14 @@ export default function ProduitsModule({ session, theme }) {
         }
         Swal.fire({ icon: 'success', title: 'Produit mis à jour', timer: 1000, showConfirmButton: false });
       } else {
-        const { error } = await supabase.from('products').insert([{ ...payload, user_id: session.user.id }]);
+        const { error } = await supabase.from('products').insert([{ ...payload, user_id: targetUid }]);
         if (error) {
           const safePayload = {
             nom: form.nom,
             prix_unitaire: +form.prix_unitaire || 0,
             stock_qty: +form.stock_qty || 0,
             description: form.description || '',
-            user_id: session.user.id
+            user_id: targetUid
           };
           await supabase.from('products').insert([safePayload]);
         }
@@ -125,15 +126,18 @@ export default function ProduitsModule({ session, theme }) {
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
+      cancelButtonText: 'Annuler',
       confirmButtonText: 'Oui, supprimer'
     });
     if (res.isConfirmed) {
       try {
-        await supabase.from('products').delete().eq('id', p.id);
+        const { error } = await supabase.from('products').delete().eq('id', p.id);
+        if (error) throw error;
         setProducts(prev => prev.filter(x => x.id !== p.id));
-        Swal.fire({ icon: 'success', title: 'Supprimé', timer: 800, showConfirmButton: false });
+        Swal.fire({ icon: 'success', title: 'Produit supprimé !', timer: 800, showConfirmButton: false });
+        fetchProducts();
       } catch (err) {
-        Swal.fire('Erreur', err.message, 'error');
+        Swal.fire('Erreur', 'Impossible de supprimer: ' + err.message, 'error');
       }
     }
   };

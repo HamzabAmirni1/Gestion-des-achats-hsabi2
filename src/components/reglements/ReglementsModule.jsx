@@ -4,7 +4,8 @@ import { DollarSign, Plus, ArrowDownLeft, ArrowUpRight, Search, CheckCircle, Tra
 import Swal from 'sweetalert2';
 import { format } from 'date-fns';
 
-export default function ReglementsModule({ session, theme }) {
+export default function ReglementsModule({ session, theme, companyId }) {
+  const targetUid = companyId || session?.user?.id;
   const [activeTab, setActiveTab] = useState('clients'); // 'clients' | 'fournisseurs'
   const [regClients, setRegClients] = useState([]);
   const [regFourn, setRegFourn] = useState([]);
@@ -27,18 +28,18 @@ export default function ReglementsModule({ session, theme }) {
 
   useEffect(() => {
     fetchData();
-  }, [session]);
+  }, [session, targetUid]);
 
   const fetchData = async () => {
-    if (!session) return;
+    if (!session || !targetUid) return;
     setLoading(true);
     try {
       const [rcRes, rfRes, cRes, fRes, vRes] = await Promise.all([
-        supabase.from('reglements_clients').select('*').order('date', { ascending: false }),
-        supabase.from('reglements_fournisseurs').select('*').order('date', { ascending: false }),
-        supabase.from('clients').select('*').order('nom'),
-        supabase.from('fournisseurs').select('*').order('nom'),
-        supabase.from('ventes').select('*').order('date', { ascending: false })
+        supabase.from('reglements_clients').select('*').eq('user_id', targetUid).order('date', { ascending: false }),
+        supabase.from('reglements_fournisseurs').select('*').eq('user_id', targetUid).order('date', { ascending: false }),
+        supabase.from('clients').select('*').eq('user_id', targetUid).order('nom'),
+        supabase.from('fournisseurs').select('*').eq('user_id', targetUid).order('nom'),
+        supabase.from('ventes').select('*').eq('user_id', targetUid).order('date', { ascending: false })
       ]);
 
       setRegClients(rcRes.data || []);
@@ -69,7 +70,7 @@ export default function ReglementsModule({ session, theme }) {
 
     try {
       const payload = isClient ? {
-        user_id: session.user.id,
+        user_id: targetUid,
         client_id: form.party_id || null,
         client_nom: form.party_nom,
         montant: +form.montant,
@@ -78,7 +79,7 @@ export default function ReglementsModule({ session, theme }) {
         date: form.date,
         notes: form.notes
       } : {
-        user_id: session.user.id,
+        user_id: targetUid,
         fournisseur_id: form.party_id || null,
         fournisseur_nom: form.party_nom,
         montant: +form.montant,
@@ -97,7 +98,7 @@ export default function ReglementsModule({ session, theme }) {
       // Record in caisse
       try {
         await supabase.from('caisse').insert([{
-          user_id: session.user.id,
+          user_id: targetUid,
           type: isClient ? 'entree' : 'sortie',
           categorie: isClient ? 'reglement_client' : 'reglement_fournisseur',
           montant: +form.montant,
@@ -136,16 +137,24 @@ export default function ReglementsModule({ session, theme }) {
   const handleDelete = async (table, id) => {
     const res = await Swal.fire({
       title: 'Supprimer ce règlement ?',
+      text: 'Action irréversible',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
-      confirmButtonText: 'Supprimer'
+      cancelButtonText: 'Annuler',
+      confirmButtonText: 'Oui, supprimer'
     });
     if (res.isConfirmed) {
-      await supabase.from(table).delete().eq('id', id);
-      if (table === 'reglements_clients') setRegClients(prev => prev.filter(x => x.id !== id));
-      else setRegFourn(prev => prev.filter(x => x.id !== id));
-      Swal.fire({ icon: 'success', title: 'Supprimé', timer: 700, showConfirmButton: false });
+      try {
+        const { error } = await supabase.from(table).delete().eq('id', id);
+        if (error) throw error;
+        if (table === 'reglements_clients') setRegClients(prev => prev.filter(x => x.id !== id));
+        else setRegFourn(prev => prev.filter(x => x.id !== id));
+        Swal.fire({ icon: 'success', title: 'Règlement supprimé !', timer: 700, showConfirmButton: false });
+        fetchData();
+      } catch (err) {
+        Swal.fire('Erreur', 'Impossible de supprimer: ' + err.message, 'error');
+      }
     }
   };
 

@@ -3,7 +3,8 @@ import { supabase } from '../../supabaseClient';
 import { Package, Factory, Plus, Search, Edit2, Trash2, AlertTriangle, Layers, Box, DollarSign } from 'lucide-react';
 import Swal from 'sweetalert2';
 
-export default function StockModule({ session, theme }) {
+export default function StockModule({ session, theme, companyId }) {
+  const targetUid = companyId || session?.user?.id;
   const [activeSubTab, setActiveSubTab] = useState('matieres'); // 'matieres' | 'emballages' | 'produits'
   const [matieres, setMatieres] = useState([]);
   const [emballages, setEmballages] = useState([]);
@@ -23,16 +24,16 @@ export default function StockModule({ session, theme }) {
 
   useEffect(() => {
     fetchAllStock();
-  }, [session]);
+  }, [session, targetUid]);
 
   const fetchAllStock = async () => {
-    if (!session) return;
+    if (!session || !targetUid) return;
     setLoading(true);
     try {
       const [mRes, eRes, pRes] = await Promise.all([
-        supabase.from('matieres_premieres').select('*').order('nom'),
-        supabase.from('emballages').select('*').order('nom'),
-        supabase.from('products').select('*').order('nom')
+        supabase.from('matieres_premieres').select('*').eq('user_id', targetUid).order('nom'),
+        supabase.from('emballages').select('*').eq('user_id', targetUid).order('nom'),
+        supabase.from('products').select('*').eq('user_id', targetUid).order('nom')
       ]);
       setMatieres(mRes.data || []);
       setEmballages(eRes.data || []);
@@ -81,14 +82,15 @@ export default function StockModule({ session, theme }) {
         await supabase.from(table).update(payload).eq('id', editingItem.id);
         Swal.fire({ icon: 'success', title: 'Mis à jour !', timer: 900, showConfirmButton: false });
       } else {
-        await supabase.from(table).insert([{ ...payload, user_id: session.user.id }]);
+        const { error } = await supabase.from(table).insert([{ ...payload, user_id: targetUid }]);
+        if (error) throw error;
         Swal.fire({ icon: 'success', title: 'Ajouté !', timer: 900, showConfirmButton: false });
       }
       setIsModalOpen(false);
       setEditingItem(null);
       fetchAllStock();
     } catch (err) {
-      Swal.fire('Info', 'Enregistré localement ou erreur: ' + err.message, 'info');
+      Swal.fire('Erreur', 'Impossible d\'enregistrer: ' + err.message, 'error');
       setIsModalOpen(false);
     }
   };
@@ -101,15 +103,17 @@ export default function StockModule({ session, theme }) {
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
-      confirmButtonText: 'Supprimer'
+      cancelButtonText: 'Annuler',
+      confirmButtonText: 'Oui, supprimer'
     });
     if (res.isConfirmed) {
       try {
-        await supabase.from(table).delete().eq('id', item.id);
+        const { error } = await supabase.from(table).delete().eq('id', item.id);
+        if (error) throw error;
         fetchAllStock();
-        Swal.fire({ icon: 'success', title: 'Supprimé', timer: 800, showConfirmButton: false });
+        Swal.fire({ icon: 'success', title: 'Supprimé avec succès', timer: 800, showConfirmButton: false });
       } catch (err) {
-        console.error(err);
+        Swal.fire('Erreur', 'Impossible de supprimer: ' + err.message, 'error');
       }
     }
   };

@@ -4,7 +4,8 @@ import { TrendingUp, Plus, DollarSign, ArrowDownLeft, ArrowUpRight, ShieldCheck,
 import Swal from 'sweetalert2';
 import { format } from 'date-fns';
 
-export default function ApportsModule({ session, theme }) {
+export default function ApportsModule({ session, theme, companyId }) {
+  const targetUid = companyId || session?.user?.id;
   const [apports, setApports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -18,13 +19,13 @@ export default function ApportsModule({ session, theme }) {
 
   useEffect(() => {
     fetchApports();
-  }, [session]);
+  }, [session, targetUid]);
 
   const fetchApports = async () => {
-    if (!session) return;
+    if (!session || !targetUid) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase.from('apports').select('*').order('date', { ascending: false });
+      const { data, error } = await supabase.from('apports').select('*').eq('user_id', targetUid).order('date', { ascending: false });
       setApports(data || []);
     } catch (e) {
       console.error(e);
@@ -49,7 +50,7 @@ export default function ApportsModule({ session, theme }) {
 
     try {
       const payload = {
-        user_id: session.user.id,
+        user_id: targetUid,
         type: form.type,
         montant: +form.montant,
         source: form.source || 'Fonds Propres',
@@ -66,7 +67,7 @@ export default function ApportsModule({ session, theme }) {
       if (form.type === 'apport_personnel' || form.type === 'pret_recu') {
         try {
           await supabase.from('caisse').insert([{
-            user_id: session.user.id,
+            user_id: targetUid,
             type: 'entree',
             categorie: 'apport',
             montant: +form.montant,
@@ -77,7 +78,7 @@ export default function ApportsModule({ session, theme }) {
       } else if (form.type === 'remboursement_pret') {
         try {
           await supabase.from('caisse').insert([{
-            user_id: session.user.id,
+            user_id: targetUid,
             type: 'sortie',
             categorie: 'remboursement',
             montant: +form.montant,
@@ -99,15 +100,23 @@ export default function ApportsModule({ session, theme }) {
   const handleDelete = async (id) => {
     const res = await Swal.fire({
       title: 'Supprimer cette ligne ?',
+      text: 'Action irréversible',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
-      confirmButtonText: 'Supprimer'
+      cancelButtonText: 'Annuler',
+      confirmButtonText: 'Oui, supprimer'
     });
     if (res.isConfirmed) {
-      await supabase.from('apports').delete().eq('id', id);
-      setApports(prev => prev.filter(a => a.id !== id));
-      Swal.fire({ icon: 'success', title: 'Supprimé', timer: 700, showConfirmButton: false });
+      try {
+        const { error } = await supabase.from('apports').delete().eq('id', id);
+        if (error) throw error;
+        setApports(prev => prev.filter(a => a.id !== id));
+        Swal.fire({ icon: 'success', title: 'Supprimé avec succès', timer: 700, showConfirmButton: false });
+        fetchApports();
+      } catch (err) {
+        Swal.fire('Erreur', 'Impossible de supprimer: ' + err.message, 'error');
+      }
     }
   };
 

@@ -4,7 +4,8 @@ import { Wallet, Plus, ArrowDownRight, ArrowUpRight, DollarSign, Calendar, Filte
 import Swal from 'sweetalert2';
 import { format } from 'date-fns';
 
-export default function CaisseModule({ session, theme }) {
+export default function CaisseModule({ session, theme, companyId }) {
+  const targetUid = companyId || session?.user?.id;
   const [activeTab, setActiveTab] = useState('caisse'); // 'caisse' | 'depenses'
   const [mouvements, setMouvements] = useState([]);
   const [depenses, setDepenses] = useState([]);
@@ -32,15 +33,15 @@ export default function CaisseModule({ session, theme }) {
 
   useEffect(() => {
     fetchCaisseData();
-  }, [session]);
+  }, [session, targetUid]);
 
   const fetchCaisseData = async () => {
-    if (!session) return;
+    if (!session || !targetUid) return;
     setLoading(true);
     try {
       const [cRes, dRes] = await Promise.all([
-        supabase.from('caisse').select('*').order('date', { ascending: false }),
-        supabase.from('depenses').select('*').order('date', { ascending: false })
+        supabase.from('caisse').select('*').eq('user_id', targetUid).order('date', { ascending: false }),
+        supabase.from('depenses').select('*').eq('user_id', targetUid).order('date', { ascending: false })
       ]);
       setMouvements(cRes.data || []);
       setDepenses(dRes.data || []);
@@ -70,7 +71,7 @@ export default function CaisseModule({ session, theme }) {
 
     try {
       const payload = {
-        user_id: session.user.id,
+        user_id: targetUid,
         type: form.type,
         categorie: form.categorie,
         montant: +form.montant,
@@ -97,7 +98,7 @@ export default function CaisseModule({ session, theme }) {
 
     try {
       const payload = {
-        user_id: session.user.id,
+        user_id: targetUid,
         categorie: depForm.categorie,
         montant: +depForm.montant,
         description: depForm.description,
@@ -112,7 +113,7 @@ export default function CaisseModule({ session, theme }) {
       // Automatically register sortie in caisse
       try {
         await supabase.from('caisse').insert([{
-          user_id: session.user.id,
+          user_id: targetUid,
           type: 'sortie',
           categorie: 'depense',
           montant: +depForm.montant,
@@ -133,15 +134,23 @@ export default function CaisseModule({ session, theme }) {
   const handleDeleteMouvement = async (id) => {
     const res = await Swal.fire({
       title: 'Supprimer cette ligne ?',
+      text: 'Action irréversible',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
-      confirmButtonText: 'Supprimer'
+      cancelButtonText: 'Annuler',
+      confirmButtonText: 'Oui, supprimer'
     });
     if (res.isConfirmed) {
-      await supabase.from('caisse').delete().eq('id', id);
-      setMouvements(prev => prev.filter(m => m.id !== id));
-      Swal.fire({ icon: 'success', title: 'Supprimé', timer: 700, showConfirmButton: false });
+      try {
+        const { error } = await supabase.from('caisse').delete().eq('id', id);
+        if (error) throw error;
+        setMouvements(prev => prev.filter(m => m.id !== id));
+        Swal.fire({ icon: 'success', title: 'Supprimé avec succès', timer: 700, showConfirmButton: false });
+        fetchCaisseData();
+      } catch (e) {
+        Swal.fire('Erreur', 'Impossible de supprimer: ' + e.message, 'error');
+      }
     }
   };
 

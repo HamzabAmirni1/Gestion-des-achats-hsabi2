@@ -5,7 +5,8 @@ import Swal from 'sweetalert2';
 import { jsPDF } from 'jspdf';
 import { format } from 'date-fns';
 
-export default function ClientsModule({ session, theme }) {
+export default function ClientsModule({ session, theme, companyId }) {
+  const targetUid = companyId || session?.user?.id;
   const [clients, setClients] = useState([]);
   const [ventes, setVentes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,18 +23,18 @@ export default function ClientsModule({ session, theme }) {
 
   useEffect(() => {
     fetchClientsAndSales();
-  }, [session]);
+  }, [session, targetUid]);
 
   const fetchClientsAndSales = async () => {
-    if (!session) return;
+    if (!session || !targetUid) return;
     setLoading(true);
     try {
-      // 1. Fetch sales to get clients from existing transactions as well
-      const { data: vData } = await supabase.from('ventes').select('*').order('date', { ascending: false });
+      // 1. Fetch sales belonging to this company/director
+      const { data: vData } = await supabase.from('ventes').select('*').eq('user_id', targetUid).order('date', { ascending: false });
       setVentes(vData || []);
 
-      // 2. Fetch clients table if it exists
-      const { data: cData, error: cErr } = await supabase.from('clients').select('*').order('nom');
+      // 2. Fetch clients table belonging to this company/director
+      const { data: cData, error: cErr } = await supabase.from('clients').select('*').eq('user_id', targetUid).order('nom');
       if (cErr) {
         setTableExists(false);
         // Fallback: extract distinct clients from ventes table
@@ -122,7 +123,7 @@ export default function ClientsModule({ session, theme }) {
       } else {
         // Insert in Supabase
         const { error } = await supabase.from('clients').insert([{
-          user_id: session.user.id,
+          user_id: targetUid,
           nom: form.nom,
           tel: form.tel,
           email: form.email,
@@ -153,20 +154,23 @@ export default function ClientsModule({ session, theme }) {
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
+      cancelButtonText: 'Annuler',
       confirmButtonText: 'Oui, supprimer'
     });
     if (res.isConfirmed) {
       try {
         if (c.id && c.id.length > 20) {
-          await supabase.from('clients').delete().eq('id', c.id);
+          const { error } = await supabase.from('clients').delete().eq('id', c.id);
+          if (error) throw error;
         }
         setClients(prev => prev.filter(x => (x.id !== c.id && x.nom !== c.nom)));
         if (selectedClient && (selectedClient.id === c.id || selectedClient.nom === c.nom)) {
           setSelectedClient(null);
         }
-        Swal.fire({ icon: 'success', title: 'Supprimé', timer: 800, showConfirmButton: false });
+        Swal.fire({ icon: 'success', title: 'Client supprimé !', timer: 800, showConfirmButton: false });
+        fetchClientsAndSales();
       } catch (e) {
-        console.error(e);
+        Swal.fire('Erreur', 'Impossible de supprimer: ' + e.message, 'error');
       }
     }
   };
@@ -183,7 +187,7 @@ export default function ClientsModule({ session, theme }) {
       // Record payment into caisse
       try {
         await supabase.from('caisse').insert([{
-          user_id: session.user.id,
+          user_id: targetUid,
           type: 'entree',
           categorie: 'reglement_client',
           montant: amount,
