@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
-import { Factory, Plus, Beaker, Play, CheckCircle, Trash2, Calendar, DollarSign, Layers, Box, Info } from 'lucide-react';
+import { Factory, Plus, Beaker, Play, CheckCircle, Trash2, Calendar, DollarSign, Layers, Box, Hash, AlertTriangle } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { format } from 'date-fns';
 
 export default function ProductionModule({ session, theme, companyId }) {
   const targetUid = companyId || session?.user?.id;
-  const [activeTab, setActiveTab] = useState('productions'); // 'productions' | 'recettes'
+  const [activeTab, setActiveTab] = useState('productions');
   const [productions, setProductions] = useState([]);
   const [recettes, setRecettes] = useState([]);
   const [produits, setProduits] = useState([]);
@@ -19,6 +19,7 @@ export default function ProductionModule({ session, theme, companyId }) {
   const [prodForm, setProdForm] = useState({
     produit_id: '',
     produit_nom: '',
+    numero_lot: '',
     quantite_produite: 100,
     cout_matiere: 0,
     cout_emballage: 0,
@@ -34,12 +35,12 @@ export default function ProductionModule({ session, theme, companyId }) {
     produit_id: '',
     description: '',
     rendement: 100,
-    cout_estime: 0
   });
 
-  useEffect(() => {
-    fetchData();
-  }, [session, targetUid]);
+  // Filtre lot
+  const [lotSearch, setLotSearch] = useState('');
+
+  useEffect(() => { fetchData(); }, [session, targetUid]);
 
   const fetchData = async () => {
     if (!session || !targetUid) return;
@@ -52,7 +53,6 @@ export default function ProductionModule({ session, theme, companyId }) {
         supabase.from('matieres_premieres').select('*').eq('user_id', targetUid).order('nom'),
         supabase.from('emballages').select('*').eq('user_id', targetUid).order('nom')
       ]);
-
       setProductions(prodRes.data || []);
       setRecettes(recRes.data || []);
       setProduits(pRes.data || []);
@@ -65,17 +65,29 @@ export default function ProductionModule({ session, theme, companyId }) {
     }
   };
 
+  // Auto-generate lot number
+  const generateLotNumber = () => {
+    const d = new Date();
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd2 = String(d.getDate()).padStart(2, '0');
+    const seq = String(productions.length + 1).padStart(3, '0');
+    return `LOT-${yy}${mm}${dd2}-${seq}`;
+  };
+
   const handleLaunchProduction = async (e) => {
     e.preventDefault();
     if (!prodForm.produit_nom || !prodForm.quantite_produite) return;
 
     const totalCost = (+prodForm.cout_matiere || 0) + (+prodForm.cout_emballage || 0) + (+prodForm.cout_main_oeuvre || 0);
+    const lotNum = prodForm.numero_lot || generateLotNumber();
 
     try {
       const payload = {
         user_id: targetUid,
         produit_id: prodForm.produit_id || null,
         produit_nom: prodForm.produit_nom,
+        numero_lot: lotNum,
         quantite_produite: +prodForm.quantite_produite,
         cout_matiere: +prodForm.cout_matiere || 0,
         cout_emballage: +prodForm.cout_emballage || 0,
@@ -86,11 +98,21 @@ export default function ProductionModule({ session, theme, companyId }) {
       };
 
       const { data, error } = await supabase.from('productions').insert([payload]).select();
+
       if (error) {
-        // Fallback local
-        setProductions(prev => [{ ...payload, id: Date.now().toString() }, ...prev]);
+        // Si la colonne numero_lot n'existe pas, réessayer sans
+        if (error.message && error.message.includes('numero_lot')) {
+          const payloadFallback = { ...payload };
+          delete payloadFallback.numero_lot;
+          const { error: err2 } = await supabase.from('productions').insert([payloadFallback]).select();
+          if (err2) {
+            setProductions(prev => [{ ...payloadFallback, id: Date.now().toString() }, ...prev]);
+          }
+        } else {
+          setProductions(prev => [{ ...payload, id: Date.now().toString() }, ...prev]);
+        }
       } else {
-        // Automatically increase product stock in products table
+        // Augmenter le stock
         if (prodForm.produit_id) {
           const currentProd = produits.find(p => p.id === prodForm.produit_id);
           if (currentProd) {
@@ -103,11 +125,16 @@ export default function ProductionModule({ session, theme, companyId }) {
       Swal.fire({
         icon: 'success',
         title: 'Production Enregistrée !',
-        text: `+${prodForm.quantite_produite} unités ajoutées au stock de ${prodForm.produit_nom}`,
-        timer: 1600
+        html: `✅ <b>+${prodForm.quantite_produite} unités</b> de <b>${prodForm.produit_nom}</b><br/>🏷️ N° Lot : <b>${lotNum}</b>`,
+        timer: 2000, showConfirmButton: false
       });
 
       setIsProdModalOpen(false);
+      setProdForm({
+        produit_id: '', produit_nom: '', numero_lot: '',
+        quantite_produite: 100, cout_matiere: 0, cout_emballage: 0,
+        cout_main_oeuvre: 0, notes: '', date: format(new Date(), 'yyyy-MM-dd')
+      });
       fetchData();
     } catch (err) {
       Swal.fire('Erreur', err.message, 'error');
@@ -117,7 +144,6 @@ export default function ProductionModule({ session, theme, companyId }) {
   const handleSaveRecette = async (e) => {
     e.preventDefault();
     if (!recetteForm.nom) return;
-
     try {
       const payload = {
         user_id: targetUid,
@@ -126,7 +152,6 @@ export default function ProductionModule({ session, theme, companyId }) {
         description: recetteForm.description,
         rendement: +recetteForm.rendement || 1
       };
-
       const { error } = await supabase.from('recettes').insert([payload]);
       if (error) {
         setRecettes(prev => [...prev, { ...payload, id: Date.now().toString() }]);
@@ -154,7 +179,7 @@ export default function ProductionModule({ session, theme, companyId }) {
         const { error } = await supabase.from('productions').delete().eq('id', id);
         if (error) throw error;
         setProductions(prev => prev.filter(p => p.id !== id));
-        Swal.fire({ icon: 'success', title: 'Lot de production supprimé !', timer: 800, showConfirmButton: false });
+        Swal.fire({ icon: 'success', title: 'Lot supprimé !', timer: 800, showConfirmButton: false });
         fetchData();
       } catch (e) {
         Swal.fire('Erreur', 'Impossible de supprimer: ' + e.message, 'error');
@@ -162,8 +187,43 @@ export default function ProductionModule({ session, theme, companyId }) {
     }
   };
 
+  // Alertes stock matières premières
+  const alertesMatieres = useMemo(() =>
+    matieres.filter(m => (+m.stock_qty || 0) <= (+m.seuil_alerte || 10)), [matieres]);
+
+  // Filtrage par lot
+  const productionsFiltrees = useMemo(() => {
+    if (!lotSearch.trim()) return productions;
+    const q = lotSearch.toLowerCase();
+    return productions.filter(p =>
+      (p.numero_lot || '').toLowerCase().includes(q) ||
+      (p.produit_nom || '').toLowerCase().includes(q)
+    );
+  }, [productions, lotSearch]);
+
+  // Stats globales
+  const totalUnites = productions.reduce((s, p) => s + (+p.quantite_produite || 0), 0);
+  const totalCout = productions.reduce((s, p) => s + (+p.cout_total || 0), 0);
+  const avgCoutUnite = totalUnites > 0 ? totalCout / totalUnites : 0;
+
   return (
     <div className="animate-enter">
+      {/* Alertes matières premières */}
+      {alertesMatieres.length > 0 && (
+        <div style={{ marginBottom: 16, background: '#fef3c7', border: '1.5px solid #fde68a', borderRadius: 16, padding: '12px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, color: '#92400e', marginBottom: 6 }}>
+            <AlertTriangle size={16} /> ⚠️ {alertesMatieres.length} Matière(s) Première(s) en Rupture !
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {alertesMatieres.map(m => (
+              <span key={m.id} style={{ background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 20, padding: '3px 10px', fontSize: '0.78rem', fontWeight: 700, color: '#78350f' }}>
+                {m.nom}: {m.stock_qty} {m.unite} (min: {m.seuil_alerte || 10})
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Top Stats */}
       <div className="stats-grid">
         <div className="stat-card" style={{ borderLeft: '5px solid #4f46e5' }}>
@@ -178,9 +238,7 @@ export default function ProductionModule({ session, theme, companyId }) {
         <div className="stat-card" style={{ borderLeft: '5px solid #10b981' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div className="stat-value" style={{ color: '#10b981' }}>
-                {productions.reduce((s, p) => s + (+p.quantite_produite || 0), 0)}
-              </div>
+              <div className="stat-value" style={{ color: '#10b981' }}>{totalUnites}</div>
               <div className="stat-label">Unités Totales Produites</div>
             </div>
             <CheckCircle color="#10b981" size={28} />
@@ -189,12 +247,19 @@ export default function ProductionModule({ session, theme, companyId }) {
         <div className="stat-card" style={{ borderLeft: '5px solid #f59e0b' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div className="stat-value" style={{ color: '#f59e0b' }}>
-                {productions.reduce((s, p) => s + (+p.cout_total || 0), 0).toFixed(0)} DA
-              </div>
+              <div className="stat-value" style={{ color: '#f59e0b' }}>{totalCout.toFixed(0)} DA</div>
               <div className="stat-label">Coût Global Production</div>
             </div>
             <DollarSign color="#f59e0b" size={28} />
+          </div>
+        </div>
+        <div className="stat-card" style={{ borderLeft: '5px solid #0ea5e9' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div className="stat-value" style={{ color: '#0ea5e9' }}>{avgCoutUnite.toFixed(2)} DA</div>
+              <div className="stat-label">Coût Moyen / Unité</div>
+            </div>
+            <Layers color="#0ea5e9" size={28} />
           </div>
         </div>
       </div>
@@ -203,22 +268,18 @@ export default function ProductionModule({ session, theme, companyId }) {
       <div className="glass-container">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
           <div className="module-tabs" style={{ margin: 0 }}>
-            <button 
-              className={`module-tab ${activeTab === 'productions' ? 'active' : ''}`}
-              onClick={() => setActiveTab('productions')}
-            >
-              🏭 Historique & Ordres de Production ({productions.length})
+            <button className={`module-tab ${activeTab === 'productions' ? 'active' : ''}`} onClick={() => setActiveTab('productions')}>
+              🏭 Historique & Lots ({productions.length})
             </button>
-            <button 
-              className={`module-tab ${activeTab === 'recettes' ? 'active' : ''}`}
-              onClick={() => setActiveTab('recettes')}
-            >
+            <button className={`module-tab ${activeTab === 'recettes' ? 'active' : ''}`} onClick={() => setActiveTab('recettes')}>
               🧪 Formules & Recettes ({recettes.length})
             </button>
           </div>
-
           {activeTab === 'productions' ? (
-            <button className="btn-primary" onClick={() => setIsProdModalOpen(true)}>
+            <button className="btn-primary" onClick={() => {
+              setProdForm(f => ({ ...f, numero_lot: generateLotNumber() }));
+              setIsProdModalOpen(true);
+            }}>
               <Play size={16} /> Lancer une Production
             </button>
           ) : (
@@ -230,63 +291,81 @@ export default function ProductionModule({ session, theme, companyId }) {
 
         {/* TAB 1: Productions */}
         {activeTab === 'productions' && (
-          <div className="table-wrapper">
-            {loading ? (
-              <p style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>Chargement...</p>
-            ) : productions.length === 0 ? (
-              <div className="empty-state">
-                <Factory size={40} />
-                <p>Aucune production enregistrée</p>
-                <small>Cliquez sur "Lancer une Production" pour fabriquer un nouveau lot de produits.</small>
-              </div>
-            ) : (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Produit Fabriqué</th>
-                    <th>Quantité</th>
-                    <th>Coût Matières</th>
-                    <th>Coût Emballages</th>
-                    <th>Coût Total</th>
-                    <th>Coût / Unité</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {productions.map(p => {
-                    const costPerUnit = p.quantite_produite > 0 ? (p.cout_total / p.quantite_produite) : 0;
-                    return (
-                      <tr key={p.id}>
-                        <td>{p.date}</td>
-                        <td>
-                          <strong>{p.produit_nom}</strong>
-                          {p.notes && <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{p.notes}</div>}
-                        </td>
-                        <td>
-                          <span className="badge badge-purple" style={{ fontSize: '0.85rem' }}>
-                            {p.quantite_produite} unités
-                          </span>
-                        </td>
-                        <td>{(+p.cout_matiere || 0).toFixed(2)} DA</td>
-                        <td>{(+p.cout_emballage || 0).toFixed(2)} DA</td>
-                        <td>
-                          <strong style={{ color: '#4f46e5' }}>{(+p.cout_total || 0).toFixed(2)} DA</strong>
-                        </td>
-                        <td>
-                          <span style={{ fontWeight: 700, color: '#10b981' }}>{costPerUnit.toFixed(2)} DA</span>
-                        </td>
-                        <td>
-                          <button className="icon-btn" title="Supprimer" style={{ color: '#ef4444' }} onClick={() => handleDeleteProduction(p.id)}>
-                            <Trash2 size={14} />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
+          <div>
+            {/* Recherche par lot */}
+            <div style={{ marginBottom: 14 }}>
+              <input
+                className="form-control"
+                placeholder="🔍 Rechercher par N° Lot ou produit..."
+                value={lotSearch}
+                onChange={e => setLotSearch(e.target.value)}
+                style={{ maxWidth: 340 }}
+              />
+            </div>
+            <div className="table-wrapper">
+              {loading ? (
+                <p style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>Chargement...</p>
+              ) : productionsFiltrees.length === 0 ? (
+                <div className="empty-state">
+                  <Factory size={40} />
+                  <p>Aucune production enregistrée</p>
+                  <small>Cliquez sur "Lancer une Production" pour fabriquer un nouveau lot.</small>
+                </div>
+              ) : (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>N° Lot</th>
+                      <th>Date</th>
+                      <th>Produit Fabriqué</th>
+                      <th>Quantité</th>
+                      <th>Coût Matières</th>
+                      <th>Coût Emballages</th>
+                      <th>Main d'Œuvre</th>
+                      <th>Coût Total</th>
+                      <th>Coût / Unité</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productionsFiltrees.map(p => {
+                      const costPerUnit = p.quantite_produite > 0 ? (p.cout_total / p.quantite_produite) : 0;
+                      return (
+                        <tr key={p.id}>
+                          <td>
+                            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#4f46e5', fontSize: '0.8rem', background: 'rgba(79,70,229,0.08)', padding: '3px 8px', borderRadius: 8 }}>
+                              {p.numero_lot || '—'}
+                            </span>
+                          </td>
+                          <td>{p.date}</td>
+                          <td>
+                            <strong>{p.produit_nom}</strong>
+                            {p.notes && <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{p.notes}</div>}
+                          </td>
+                          <td>
+                            <span className="badge badge-purple" style={{ fontSize: '0.85rem' }}>
+                              {p.quantite_produite} unités
+                            </span>
+                          </td>
+                          <td>{(+p.cout_matiere || 0).toFixed(2)} DA</td>
+                          <td>{(+p.cout_emballage || 0).toFixed(2)} DA</td>
+                          <td>{(+p.cout_main_oeuvre || 0).toFixed(2)} DA</td>
+                          <td><strong style={{ color: '#4f46e5' }}>{(+p.cout_total || 0).toFixed(2)} DA</strong></td>
+                          <td>
+                            <span style={{ fontWeight: 700, color: '#10b981' }}>{costPerUnit.toFixed(2)} DA</span>
+                          </td>
+                          <td>
+                            <button className="icon-btn" title="Supprimer" style={{ color: '#ef4444' }} onClick={() => handleDeleteProduction(p.id)}>
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         )}
 
@@ -314,19 +393,17 @@ export default function ProductionModule({ session, theme, companyId }) {
                         <strong>{r.rendement} unités</strong>
                       </div>
                     </div>
-                    <button 
-                      className="btn-primary" 
-                      style={{ width: '100%', padding: 9, fontSize: '0.82rem' }}
+                    <button className="btn-primary" style={{ width: '100%', padding: 9, fontSize: '0.82rem' }}
                       onClick={() => {
                         setProdForm(f => ({
                           ...f,
                           produit_nom: r.nom,
                           produit_id: r.produit_id || '',
-                          quantite_produite: r.rendement || 100
+                          quantite_produite: r.rendement || 100,
+                          numero_lot: generateLotNumber()
                         }));
                         setIsProdModalOpen(true);
-                      }}
-                    >
+                      }}>
                       <Play size={14} /> Produire ce lot
                     </button>
                   </div>
@@ -337,6 +414,48 @@ export default function ProductionModule({ session, theme, companyId }) {
         )}
       </div>
 
+      {/* Coût de revient par produit */}
+      {produits.length > 0 && (
+        <div className="glass-container">
+          <h3 style={{ fontWeight: 800, marginBottom: 16, fontSize: '1.1rem' }}>🧮 Coût de Revient par Produit</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+            {produits.map(p => {
+              const prodsLot = productions.filter(pr => pr.produit_id === p.id);
+              const totalQty = prodsLot.reduce((s, pr) => s + (+pr.quantite_produite || 0), 0);
+              const totalCoutP = prodsLot.reduce((s, pr) => s + (+pr.cout_total || 0), 0);
+              const coutUnite = totalQty > 0 ? totalCoutP / totalQty : 0;
+              const marge = p.prix_unitaire > 0 ? ((p.prix_unitaire - coutUnite) / p.prix_unitaire * 100) : 0;
+
+              return (
+                <div key={p.id} style={{ background: 'var(--card)', borderRadius: 14, padding: '14px 16px', border: '1px solid var(--card-border)' }}>
+                  <div style={{ fontWeight: 800, fontSize: '0.95rem', marginBottom: 8, color: 'var(--primary)' }}>{p.nom}</div>
+                  <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--muted)' }}>Prix vente:</span>
+                      <strong>{(+p.prix_unitaire || 0).toFixed(2)} DA</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--muted)' }}>Coût de revient:</span>
+                      <strong style={{ color: '#f59e0b' }}>{coutUnite.toFixed(2)} DA</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--muted)' }}>Marge:</span>
+                      <strong style={{ color: marge > 0 ? '#10b981' : '#ef4444' }}>
+                        {marge > 0 ? '+' : ''}{marge.toFixed(1)}%
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--muted)' }}>Lots produits:</span>
+                      <span>{prodsLot.length} lot(s)</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* MODAL: Lancer une Production */}
       {isProdModalOpen && (
         <div className="modal-overlay" onClick={() => setIsProdModalOpen(false)}>
@@ -346,12 +465,24 @@ export default function ProductionModule({ session, theme, companyId }) {
               <button className="modal-close-btn" onClick={() => setIsProdModalOpen(false)}>×</button>
             </div>
             <form onSubmit={handleLaunchProduction}>
+              {/* N° Lot */}
+              <div className="form-row">
+                <div className="form-group">
+                  <label>🏷️ N° Lot (Duffa)</label>
+                  <input className="form-control" value={prodForm.numero_lot}
+                    onChange={e => setProdForm(f => ({ ...f, numero_lot: e.target.value }))}
+                    placeholder="Ex: LOT-20261025-001" />
+                </div>
+                <div className="form-group">
+                  <label>Date de Production</label>
+                  <input type="date" className="form-control" value={prodForm.date}
+                    onChange={e => setProdForm(f => ({ ...f, date: e.target.value }))} />
+                </div>
+              </div>
+
               <div className="form-group">
                 <label>Produit à Fabriquer *</label>
-                <select 
-                  className="form-control" 
-                  value={prodForm.produit_id} 
-                  required
+                <select className="form-control" value={prodForm.produit_id} required
                   onChange={e => {
                     const p = produits.find(x => x.id === e.target.value);
                     setProdForm(f => ({
@@ -359,8 +490,7 @@ export default function ProductionModule({ session, theme, companyId }) {
                       produit_id: e.target.value,
                       produit_nom: p ? p.nom : f.produit_nom
                     }));
-                  }}
-                >
+                  }}>
                   <option value="">-- Sélectionner le produit --</option>
                   {produits.map(p => (
                     <option key={p.id} value={p.id}>{p.nom} (Stock actuel: {p.stock_qty})</option>
@@ -371,76 +501,42 @@ export default function ProductionModule({ session, theme, companyId }) {
               {!prodForm.produit_id && (
                 <div className="form-group">
                   <label>Nom du Produit (si non listé)</label>
-                  <input 
-                    className="form-control" 
-                    value={prodForm.produit_nom} 
-                    onChange={e => setProdForm({ ...prodForm, produit_nom: e.target.value })} 
-                    placeholder="Ex: Savon liquide 5L" 
-                  />
+                  <input className="form-control" value={prodForm.produit_nom}
+                    onChange={e => setProdForm({ ...prodForm, produit_nom: e.target.value })}
+                    placeholder="Ex: Savon liquide 5L" />
                 </div>
               )}
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Quantité Fabriquée *</label>
-                  <input 
-                    type="number" 
-                    min="1" 
-                    required 
-                    className="form-control" 
-                    value={prodForm.quantite_produite} 
-                    onChange={e => setProdForm({ ...prodForm, quantite_produite: e.target.value })} 
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Date de Production</label>
-                  <input 
-                    type="date" 
-                    className="form-control" 
-                    value={prodForm.date} 
-                    onChange={e => setProdForm({ ...prodForm, date: e.target.value })} 
-                  />
-                </div>
+              <div className="form-group">
+                <label>Quantité Fabriquée *</label>
+                <input type="number" min="1" required className="form-control"
+                  value={prodForm.quantite_produite}
+                  onChange={e => setProdForm({ ...prodForm, quantite_produite: e.target.value })} />
               </div>
 
               <div className="form-row">
                 <div className="form-group">
                   <label>Coût Matières Premières (DA)</label>
-                  <input 
-                    type="number" 
-                    step="0.01" 
-                    className="form-control" 
-                    value={prodForm.cout_matiere} 
-                    onChange={e => setProdForm({ ...prodForm, cout_matiere: e.target.value })} 
-                    placeholder="Ex: 4500" 
-                  />
+                  <input type="number" step="0.01" className="form-control" value={prodForm.cout_matiere}
+                    onChange={e => setProdForm({ ...prodForm, cout_matiere: e.target.value })}
+                    placeholder="Ex: 4500" />
                 </div>
                 <div className="form-group">
                   <label>Coût Emballages & Bouteilles (DA)</label>
-                  <input 
-                    type="number" 
-                    step="0.01" 
-                    className="form-control" 
-                    value={prodForm.cout_emballage} 
-                    onChange={e => setProdForm({ ...prodForm, cout_emballage: e.target.value })} 
-                    placeholder="Ex: 1200" 
-                  />
+                  <input type="number" step="0.01" className="form-control" value={prodForm.cout_emballage}
+                    onChange={e => setProdForm({ ...prodForm, cout_emballage: e.target.value })}
+                    placeholder="Ex: 1200" />
                 </div>
               </div>
 
               <div className="form-group">
                 <label>Coût Main-d'œuvre & Énergie (DA)</label>
-                <input 
-                  type="number" 
-                  step="0.01" 
-                  className="form-control" 
-                  value={prodForm.cout_main_oeuvre} 
-                  onChange={e => setProdForm({ ...prodForm, cout_main_oeuvre: e.target.value })} 
-                  placeholder="Ex: 800" 
-                />
+                <input type="number" step="0.01" className="form-control" value={prodForm.cout_main_oeuvre}
+                  onChange={e => setProdForm({ ...prodForm, cout_main_oeuvre: e.target.value })}
+                  placeholder="Ex: 800" />
               </div>
 
-              {/* Total Preview */}
+              {/* Preview coût */}
               <div style={{ background: 'rgba(79, 70, 229, 0.08)', borderRadius: 12, padding: 12, marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '1rem', color: 'var(--primary)' }}>
                   <span>Coût Total de Production :</span>
@@ -448,19 +544,18 @@ export default function ProductionModule({ session, theme, companyId }) {
                 </div>
                 {prodForm.quantite_produite > 0 && (
                   <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: 4 }}>
-                    Coût de revient par unité : {(((+prodForm.cout_matiere || 0) + (+prodForm.cout_emballage || 0) + (+prodForm.cout_main_oeuvre || 0)) / (+prodForm.quantite_produite)).toFixed(2)} DA
+                    🧮 Coût de revient / unité : <strong style={{ color: '#f59e0b' }}>
+                      {(((+prodForm.cout_matiere || 0) + (+prodForm.cout_emballage || 0) + (+prodForm.cout_main_oeuvre || 0)) / (+prodForm.quantite_produite)).toFixed(2)} DA
+                    </strong>
                   </div>
                 )}
               </div>
 
               <div className="form-group">
-                <label>Notes / N° Lot</label>
-                <input 
-                  className="form-control" 
-                  value={prodForm.notes} 
-                  onChange={e => setProdForm({ ...prodForm, notes: e.target.value })} 
-                  placeholder="Ex: Lot #2026-04" 
-                />
+                <label>Notes</label>
+                <input className="form-control" value={prodForm.notes}
+                  onChange={e => setProdForm({ ...prodForm, notes: e.target.value })}
+                  placeholder="Notes supplémentaires..." />
               </div>
 
               <button type="submit" className="btn-primary" style={{ width: '100%', padding: 14 }}>
@@ -482,32 +577,21 @@ export default function ProductionModule({ session, theme, companyId }) {
             <form onSubmit={handleSaveRecette}>
               <div className="form-group">
                 <label>Nom de la Recette *</label>
-                <input 
-                  className="form-control" 
-                  required 
-                  value={recetteForm.nom} 
-                  onChange={e => setRecetteForm({ ...recetteForm, nom: e.target.value })} 
-                  placeholder="Ex: Formule Lave-vaisselle Citron" 
-                />
+                <input className="form-control" required value={recetteForm.nom}
+                  onChange={e => setRecetteForm({ ...recetteForm, nom: e.target.value })}
+                  placeholder="Ex: Formule Lave-vaisselle Citron" />
               </div>
               <div className="form-row">
                 <div className="form-group">
                   <label>Rendement Standard (Unités)</label>
-                  <input 
-                    type="number" 
-                    className="form-control" 
-                    value={recetteForm.rendement} 
-                    onChange={e => setRecetteForm({ ...recetteForm, rendement: e.target.value })} 
-                    placeholder="100" 
-                  />
+                  <input type="number" className="form-control" value={recetteForm.rendement}
+                    onChange={e => setRecetteForm({ ...recetteForm, rendement: e.target.value })}
+                    placeholder="100" />
                 </div>
                 <div className="form-group">
                   <label>Associer à un Produit</label>
-                  <select 
-                    className="form-control" 
-                    value={recetteForm.produit_id} 
-                    onChange={e => setRecetteForm({ ...recetteForm, produit_id: e.target.value })}
-                  >
+                  <select className="form-control" value={recetteForm.produit_id}
+                    onChange={e => setRecetteForm({ ...recetteForm, produit_id: e.target.value })}>
                     <option value="">-- Choisir le produit --</option>
                     {produits.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
                   </select>
@@ -515,13 +599,9 @@ export default function ProductionModule({ session, theme, companyId }) {
               </div>
               <div className="form-group">
                 <label>Composition & Instructions</label>
-                <textarea 
-                  className="form-control" 
-                  rows={4} 
-                  value={recetteForm.description} 
-                  onChange={e => setRecetteForm({ ...recetteForm, description: e.target.value })} 
-                  placeholder="Ex: 50kg Eau + 5kg LABSA + 2kg Soude..." 
-                />
+                <textarea className="form-control" rows={4} value={recetteForm.description}
+                  onChange={e => setRecetteForm({ ...recetteForm, description: e.target.value })}
+                  placeholder="Ex: 50kg Eau + 5kg LABSA + 2kg Soude..." />
               </div>
               <button type="submit" className="btn-primary" style={{ width: '100%', padding: 14 }}>
                 Enregistrer la Recette
