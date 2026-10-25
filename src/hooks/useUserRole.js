@@ -134,7 +134,7 @@ export const isAdmin = (role) => role === 'admin';
 
 /** Tabs visible to workers */
 export const WORKER_TABS = new Set([
-  'dashboard', 'clients', 'produits', 'stock', 'production', 'ventes', 'achats', 'chat',
+  'dashboard', 'clients', 'produits', 'stock', 'production', 'ventes', 'achats', 'retours', 'chat',
 ]);
 
 /** Tabs visible only to admins */
