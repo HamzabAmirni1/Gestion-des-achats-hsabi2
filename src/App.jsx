@@ -25,6 +25,7 @@ import CaisseModule     from './components/caisse/CaisseModule';
 import ApportsModule    from './components/apports/ApportsModule';
 import PersonnelModule  from './components/personnel/PersonnelModule';
 import UsersModule      from './components/users/UsersModule';
+import RetoursModule    from './components/retours/RetoursModule';
 import { useUserRole, isAdmin as checkAdmin, WORKER_TABS, ADMIN_ONLY_TABS } from './hooks/useUserRole';
 import { getGeminiReply } from './services/aiService';
 
@@ -1451,6 +1452,7 @@ RÈGLE D'OR DE LA LANGUE (TRÈS IMPORTANT) :
     { id: 'personnel',   label: 'Personnel',     icon: '👷' },
     { id: 'stats',       label: 'Stats',         icon: '📊' },
     { id: 'utilisateurs',label: 'Utilisateurs',  icon: '🔐' }, // admin only
+    { id: 'retours',     label: 'Retours',       icon: '↩️' },
     { id: 'chat',        label: 'AI Chat',       icon: '🤖' },
     { id: 'dev',         label: 'Dev',           icon: '👨‍💻' },   // admin only
   ];
@@ -1642,6 +1644,9 @@ RÈGLE D'OR DE LA LANGUE (TRÈS IMPORTANT) :
 
         {/* ── 11. PERSONNEL & SALAIRES (NOUVEAU MODULE) ───────────── */}
         {activeTab === 'personnel' && <PersonnelModule session={session} theme={theme} companyId={companyId || session?.user?.id} />}
+
+        {/* ── 15. RETOURS & AVOIRS (NOUVEAU MODULE) ─────────────────── */}
+        {activeTab === 'retours' && <RetoursModule session={session} theme={theme} companyId={companyId || session?.user?.id} />}
 
         {/* ── 12. STATS TAB ORIGINAL ───────────────────────────────── */}
         {activeTab === 'stats' && (
