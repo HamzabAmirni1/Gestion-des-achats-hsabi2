@@ -27,6 +27,79 @@ import { getGeminiReply } from './services/aiService';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
+/* ── FORMATTED MESSAGE PARSER (Markdown & Bullets) ── */
+function FormattedMessage({ text }) {
+  if (!text) return null;
+
+  const lines = text.split('\n');
+
+  return (
+    <div className="msg-formatted-body">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          return <div key={idx} className="msg-empty-spacer" />;
+        }
+
+        // Bullet line (starts with •, -, or *)
+        const isBullet = /^[•\-*]\s+/.test(trimmed);
+        const lineContent = isBullet ? trimmed.replace(/^[•\-*]\s+/, '') : trimmed;
+
+        // Parse inline spans: **bold**, *italic*, `code`
+        const parseSpans = (str) => {
+          const normalized = str.replace(/\*{3,}/g, '**').replace(/\*\*\s+\*\*/g, ' ');
+          const parts = [];
+          const regex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
+          let lastIndex = 0;
+          let match;
+
+          while ((match = regex.exec(normalized)) !== null) {
+            if (match.index > lastIndex) {
+              parts.push(normalized.slice(lastIndex, match.index));
+            }
+            const token = match[0];
+            if (token.startsWith('**') && token.endsWith('**') && token.length > 4) {
+              parts.push(
+                <strong key={match.index} className="msg-strong">
+                  {token.slice(2, -2)}
+                </strong>
+              );
+            } else if (token.startsWith('*') && token.endsWith('*') && token.length > 2) {
+              parts.push(<em key={match.index}>{token.slice(1, -1)}</em>);
+            } else if (token.startsWith('`') && token.endsWith('`') && token.length > 2) {
+              parts.push(<code key={match.index} className="msg-code">{token.slice(1, -1)}</code>);
+            } else {
+              parts.push(token);
+            }
+            lastIndex = regex.lastIndex;
+          }
+          if (lastIndex < normalized.length) {
+            parts.push(normalized.slice(lastIndex));
+          }
+          return parts.length > 0 ? parts : str;
+        };
+
+        if (isBullet) {
+          return (
+            <div key={idx} className="msg-bullet-row">
+              <span className="msg-bullet-dot">•</span>
+              <div className="msg-bullet-text">{parseSpans(lineContent)}</div>
+            </div>
+          );
+        }
+
+        const isHeader = /^[🤖📊💰📦⚠️🏆📈🏭✨💡👋]/.test(trimmed);
+
+        return (
+          <div key={idx} className={isHeader ? "msg-header-row" : "msg-text-row"}>
+            {parseSpans(trimmed)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function App() {
   const [session, setSession]       = useState(null);
   const [authMode, setAuthMode]     = useState('login');
@@ -1014,8 +1087,11 @@ CONSIGNES STRICTES :
                       )}
 
                       <div className="msg-bubble">
-                        <div className="msg-content" style={{ whiteSpace: 'pre-line' }}>
-                          {m.content}
+                        <div className="msg-content">
+                          {m.sender === 'admin' || m.is_bot
+                            ? <FormattedMessage text={m.content} />
+                            : <span style={{ whiteSpace: 'pre-wrap' }}>{m.content}</span>
+                          }
                         </div>
                         <div className="msg-footer">
                           {m.created_at && (
