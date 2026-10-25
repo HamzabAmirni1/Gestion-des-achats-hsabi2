@@ -3,7 +3,7 @@ import {
   Download, Sun, RefreshCw, LogOut, Send, X, Plus, Printer, Mail, Lock, 
   TrendingUp, AlertTriangle, ShoppingBag, Bell, Smartphone, Trash2,
   Users, Package, Factory, ShoppingCart, Truck, Wallet, UserCheck, DollarSign, Layers,
-  Shield, User, CheckCircle, Search, MapPin, Calendar, Phone
+  Shield, User, CheckCircle, Search, MapPin, Calendar, Phone, Camera, Upload
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js';
@@ -174,6 +174,122 @@ export default function App() {
     localStorage.removeItem('brasti-tab');
     setActiveTab('dashboard');
     await supabase.auth.signOut();
+  };
+
+  /* ── Photo de Profil (Avatar) ── */
+  const [userAvatar, setUserAvatar] = useState(() => {
+    return session?.user?.id ? (localStorage.getItem('brasti-avatar-' + session.user.id) || '') : '';
+  });
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const avatarInputRef = useRef(null);
+
+  useEffect(() => {
+    if (userProfile?.avatar_url) {
+      setUserAvatar(userProfile.avatar_url);
+      if (session?.user?.id) localStorage.setItem('brasti-avatar-' + session.user.id, userProfile.avatar_url);
+    } else if (session?.user?.id) {
+      const cached = localStorage.getItem('brasti-avatar-' + session.user.id);
+      if (cached) setUserAvatar(cached);
+    }
+  }, [userProfile, session?.user?.id]);
+
+  const compressAvatar = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const maxDim = 320;
+          let w = img.width;
+          let h = img.height;
+          if (w > h) {
+            if (w > maxDim) { h = Math.round((h * maxDim) / w); w = maxDim; }
+          } else {
+            if (h > maxDim) { w = Math.round((w * maxDim) / h); h = maxDim; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.82));
+        };
+        img.onerror = reject;
+        img.src = event.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleAvatarFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !session?.user?.id) return;
+    setAvatarLoading(true);
+    try {
+      const base64 = await compressAvatar(file);
+      setUserAvatar(base64);
+      localStorage.setItem('brasti-avatar-' + session.user.id, base64);
+
+      // Save to Supabase Auth metadata
+      await supabase.auth.updateUser({
+        data: { avatar_url: base64 }
+      });
+
+      // Save to Supabase profiles table
+      await safeUpsertProfile({
+        id: session.user.id,
+        avatar_url: base64,
+        role: userRole || 'worker',
+        full_name: userProfile?.full_name || session.user.email?.split('@')[0],
+        email: session.user.email,
+        is_active: isActive !== false,
+      });
+
+      refreshRole();
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Photo de profil mise à jour !',
+        timer: 1500,
+        showConfirmButton: false
+      });
+    } catch (err) {
+      console.error(err);
+      Swal.fire('Erreur', 'Impossible de charger la photo: ' + err.message, 'error');
+    } finally {
+      setAvatarLoading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    if (!session?.user?.id) return;
+    setAvatarLoading(true);
+    try {
+      setUserAvatar('');
+      localStorage.removeItem('brasti-avatar-' + session.user.id);
+      await supabase.auth.updateUser({ data: { avatar_url: '' } });
+      await safeUpsertProfile({
+        id: session.user.id,
+        avatar_url: '',
+        role: userRole || 'worker',
+        full_name: userProfile?.full_name || session.user.email?.split('@')[0],
+        email: session.user.email,
+      });
+      refreshRole();
+      Swal.fire({
+        icon: 'success',
+        title: 'Photo supprimée',
+        timer: 1200,
+        showConfirmButton: false
+      });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAvatarLoading(false);
+    }
   };
 
   /* ── Complétion profil Google pour Employé ── */
@@ -1380,13 +1496,49 @@ RÈGLE D'OR DE LA LANGUE (TRÈS IMPORTANT) :
   if (session && userRole === 'worker' && !isActive) return (
     <div className="auth-page">
       <div className="auth-card-premium animate-enter" style={{ maxWidth: 480 }}>
-        <div style={{
-          width: 72, height: 72, borderRadius: '50%',
-          background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-          color: 'white', fontSize: '2.2rem', margin: '0 auto 16px',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 8px 24px rgba(245, 158, 11, 0.3)'
-        }}>⏳</div>
+        <div style={{ position: 'relative', width: 84, height: 84, margin: '0 auto 16px' }}>
+          {userAvatar ? (
+            <img
+              src={userAvatar}
+              alt=""
+              style={{
+                width: 84, height: 84, borderRadius: '50%', objectFit: 'cover',
+                border: '3px solid #f59e0b', boxShadow: '0 8px 24px rgba(245, 158, 11, 0.3)'
+              }}
+            />
+          ) : (
+            <div style={{
+              width: 84, height: 84, borderRadius: '50%',
+              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+              color: 'white', fontSize: '2.5rem', fontWeight: 900,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 8px 24px rgba(245, 158, 11, 0.3)'
+            }}>
+              {(userProfile?.full_name || session.user.email || 'E')[0].toUpperCase()}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => avatarInputRef.current?.click()}
+            title="Ajouter votre photo de profil"
+            style={{
+              position: 'absolute', bottom: -2, right: -2,
+              width: 32, height: 32, borderRadius: '50%',
+              background: '#4f46e5', color: 'white', border: '2.5px solid white',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+            }}
+          >
+            <Camera size={16} />
+          </button>
+          <input
+            type="file"
+            ref={avatarInputRef}
+            accept="image/*"
+            onChange={handleAvatarFileSelect}
+            style={{ display: 'none' }}
+          />
+        </div>
 
         <h2 style={{ margin: '0 0 8px', fontWeight: 900, color: 'var(--text)' }}>
           Demande en attente de validation
@@ -1477,6 +1629,47 @@ RÈGLE D'OR DE LA LANGUE (TRÈS IMPORTANT) :
           <span style={{ verticalAlign: 'middle' }}>Brasti Platform</span>
         </div>
         <div className="header-actions">
+          {/* Avatar Profile Pill */}
+          <div 
+            onClick={() => setIsProfileModalOpen(true)}
+            title="Mon Profil & Photo de profil"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              cursor: 'pointer', padding: '3px 12px 3px 4px',
+              borderRadius: 24, background: 'var(--card)',
+              border: '1.5px solid var(--card-border)',
+              transition: '0.2s',
+            }}
+          >
+            <div style={{ position: 'relative' }}>
+              {userAvatar ? (
+                <img 
+                  src={userAvatar} 
+                  alt="Avatar" 
+                  style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', display: 'block', border: '1.5px solid var(--primary)' }} 
+                />
+              ) : (
+                <div style={{
+                  width: 30, height: 30, borderRadius: '50%',
+                  background: checkAdmin(userRole) ? 'linear-gradient(135deg,#4f46e5,#7c3aed)' : 'linear-gradient(135deg,#0ea5e9,#06b6d4)',
+                  color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 800, fontSize: '0.8rem'
+                }}>
+                  {(userProfile?.full_name || session?.user?.email || 'U')[0].toUpperCase()}
+                </div>
+              )}
+              <span style={{
+                position: 'absolute', bottom: -2, right: -2,
+                background: '#4f46e5', color: 'white', borderRadius: '50%',
+                width: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '0.5rem', border: '1px solid white'
+              }}>📷</span>
+            </div>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {userProfile?.full_name || session?.user?.email?.split('@')[0]}
+            </span>
+          </div>
+
           {/* Role badge */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: 6,
@@ -2021,6 +2214,115 @@ RÈGLE D'OR DE LA LANGUE (TRÈS IMPORTANT) :
                 </button>
               </form>
             )}
+          </div>
+        </div>
+      )}
+      {/* ── MODAL PROFIL & PHOTO (POUR DIRECTEUR & EMPLOYÉ) ── */}
+      {isProfileModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsProfileModalOpen(false)}>
+          <div className="modal-content animate-enter" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>👤 Mon Profil & Photo</h3>
+              <button className="modal-close-btn" onClick={() => setIsProfileModalOpen(false)}>×</button>
+            </div>
+
+            <div style={{ textAlign: 'center', padding: '10px 0 10px' }}>
+              {/* Photo avec bouton caméra */}
+              <div style={{ position: 'relative', width: 110, height: 110, margin: '0 auto 16px' }}>
+                {userAvatar ? (
+                  <img
+                    src={userAvatar}
+                    alt="Photo de profil"
+                    style={{
+                      width: 110, height: 110, borderRadius: '50%', objectFit: 'cover',
+                      border: '3px solid var(--primary)', boxShadow: '0 8px 24px rgba(79,70,229,0.25)'
+                    }}
+                  />
+                ) : (
+                  <div style={{
+                    width: 110, height: 110, borderRadius: '50%',
+                    background: checkAdmin(userRole) ? 'linear-gradient(135deg,#4f46e5,#7c3aed)' : 'linear-gradient(135deg,#0ea5e9,#06b6d4)',
+                    color: 'white', fontSize: '3rem', fontWeight: 900,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    boxShadow: '0 8px 24px rgba(79,70,229,0.25)'
+                  }}>
+                    {(userProfile?.full_name || session?.user?.email || 'U')[0].toUpperCase()}
+                  </div>
+                )}
+
+                {/* Bouton Changer Photo */}
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  title="Choisir une photo"
+                  disabled={avatarLoading}
+                  style={{
+                    position: 'absolute', bottom: 2, right: 2,
+                    width: 36, height: 36, borderRadius: '50%',
+                    background: 'var(--primary)', color: 'white', border: '2.5px solid white',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                  }}
+                >
+                  <Camera size={18} />
+                </button>
+
+                <input
+                  type="file"
+                  ref={avatarInputRef}
+                  accept="image/*"
+                  onChange={handleAvatarFileSelect}
+                  style={{ display: 'none' }}
+                />
+              </div>
+
+              {/* Nom & Rôle */}
+              <h3 style={{ margin: '0 0 6px', fontWeight: 900 }}>{userProfile?.full_name || session?.user?.email}</h3>
+              <div style={{ display: 'inline-block', marginBottom: 14 }}>
+                <span className={`badge ${checkAdmin(userRole) ? 'badge-primary' : 'badge-purple'}`} style={{ fontSize: '0.82rem', padding: '5px 14px' }}>
+                  {checkAdmin(userRole) ? '🛡️ Directeur (Administrateur)' : '👷 Employé'}
+                </span>
+              </div>
+
+              {/* Actions Photo */}
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginBottom: 20 }}>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ fontSize: '0.84rem', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 6 }}
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={avatarLoading}
+                >
+                  <Upload size={15} />
+                  <span>{avatarLoading ? 'Chargement...' : (userAvatar ? 'Changer la photo' : 'Ajouter une photo')}</span>
+                </button>
+                {userAvatar && (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ fontSize: '0.84rem', padding: '8px 14px', color: '#ef4444', borderColor: '#fca5a5', display: 'flex', alignItems: 'center', gap: 6 }}
+                    onClick={handleRemoveAvatar}
+                    disabled={avatarLoading}
+                  >
+                    <Trash2 size={15} />
+                    <span>Supprimer</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Coordonnées détaillées */}
+              <div style={{
+                background: 'var(--bg)', borderRadius: 14, padding: '14px 16px',
+                textAlign: 'left', fontSize: '0.83rem', display: 'flex', flexDirection: 'column', gap: 8,
+                border: '1px solid var(--card-border)'
+              }}>
+                <div><strong>Email :</strong> {session?.user?.email}</div>
+                {userProfile?.tel && <div><strong>Téléphone :</strong> {userProfile.tel}</div>}
+                {userProfile?.adresse && <div><strong>Adresse :</strong> {userProfile.adresse}</div>}
+                {userProfile?.date_naissance && <div><strong>Date de Naissance :</strong> {userProfile.date_naissance}</div>}
+                {userProfile?.director_name && <div><strong>Directeur :</strong> {userProfile.director_name}</div>}
+              </div>
+            </div>
           </div>
         </div>
       )}
