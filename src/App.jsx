@@ -1473,8 +1473,8 @@ RÈGLE D'OR DE LA LANGUE (TRÈS IMPORTANT) :
       {/* Header */}
       <header className="header">
         <div className="header-title">
-          <img src="/logo.png" alt="PROPREX" style={{ height: 36, width: 36, objectFit: 'contain', marginRight: 10, verticalAlign: 'middle' }} onError={e => e.target.style.display='none'} />
-          <span style={{ verticalAlign: 'middle' }}>PROPREX GESTION</span>
+          <img src="/logo.png" alt="Brasti" style={{ height: 36, width: 36, objectFit: 'contain', marginRight: 10, verticalAlign: 'middle' }} onError={e => e.target.style.display='none'} />
+          <span style={{ verticalAlign: 'middle' }}>Brasti Platform</span>
         </div>
         <div className="header-actions">
           {/* Role badge */}
