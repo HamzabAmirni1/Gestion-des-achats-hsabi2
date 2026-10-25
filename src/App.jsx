@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Download, Sun, RefreshCw, LogOut, Send, X, Plus, Printer, Mail, Lock, 
   TrendingUp, AlertTriangle, ShoppingBag, Bell, Smartphone, Trash2,
-  Users, Package, Factory, ShoppingCart, Truck, Wallet, UserCheck, DollarSign, Layers
+  Users, Package, Factory, ShoppingCart, Truck, Wallet, UserCheck, DollarSign, Layers,
+  Shield, User, CheckCircle, Search
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js';
@@ -105,10 +106,52 @@ function FormattedMessage({ text }) {
 export default function App() {
   const [session, setSession]       = useState(null);
   const [authMode, setAuthMode]     = useState('login');
+  const [authRole, setAuthRole]     = useState('admin'); // 'admin' (Directeur) ou 'worker' (Employé)
+  const [authFullName, setAuthFullName] = useState('');
   const [authEmail, setAuthEmail]   = useState('');
   const [authPassword, setAuthPass] = useState('');
   const [authLoading, setAuthLoad]  = useState(false);
   const [authError, setAuthError]   = useState('');
+
+  /* ── Directeurs disponibles pour rattachement des employés ── */
+  const [directorsList, setDirectorsList]       = useState([]);
+  const [directorsLoading, setDirectorsLoading] = useState(false);
+  const [directorSearch, setDirectorSearch]     = useState('');
+  const [selectedDirector, setSelectedDirector] = useState(null);
+
+  const fetchDirectors = async () => {
+    setDirectorsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role')
+        .eq('role', 'admin');
+      if (!error && data && data.length > 0) {
+        setDirectorsList(data);
+        if (!selectedDirector) setSelectedDirector(data[0]);
+      } else {
+        const fallback = [{
+          id: 'admin-principal',
+          full_name: 'Hamza Amirni',
+          email: 'hamzaamirni@gmail.com',
+          role: 'admin'
+        }];
+        setDirectorsList(fallback);
+        if (!selectedDirector) setSelectedDirector(fallback[0]);
+      }
+    } catch (err) {
+      console.warn('Error fetching directors:', err);
+    } finally {
+      setDirectorsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (authRole === 'worker' && authMode === 'reg') {
+      fetchDirectors();
+    }
+  }, [authRole, authMode]);
+
   const [theme, setTheme]           = useState(() => localStorage.getItem('brasti-theme') || 'light');
 
   /* ── Role système ──────────────────────────── */
@@ -475,12 +518,76 @@ export default function App() {
   const handleAuth = async (e) => {
     e.preventDefault(); setAuthLoad(true); setAuthError('');
     try {
-      const { error } = authMode === 'login'
-        ? await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword })
-        : await supabase.auth.signUp({ email: authEmail, password: authPassword });
-      if (error) setAuthError(error.message);
+      if (authMode === 'login') {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password: authPassword
+        });
+        if (error) throw error;
+
+        // Si le profil n'existe pas encore dans profiles, on le crée avec le rôle choisi
+        if (data?.user?.id) {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('id, role')
+            .eq('id', data.user.id)
+            .maybeSingle();
+
+          if (!prof) {
+            await supabase.from('profiles').upsert({
+              id: data.user.id,
+              role: authRole,
+              full_name: authFullName || authEmail.split('@')[0],
+              email: authEmail,
+              is_active: true,
+            });
+          }
+        }
+      } else {
+        // Mode Inscription (Sign Up)
+        const { data, error } = await supabase.auth.signUp({
+          email: authEmail,
+          password: authPassword,
+          options: {
+            data: {
+              full_name: authFullName || authEmail.split('@')[0],
+              role: authRole,
+            }
+          }
+        });
+        if (error) throw error;
+
+        if (data?.user?.id) {
+          const dirName = selectedDirector ? (selectedDirector.full_name || selectedDirector.email) : 'Directeur Principal';
+          await supabase.from('profiles').upsert({
+            id: data.user.id,
+            role: authRole,
+            full_name: authRole === 'worker' ? `${authFullName || 'Employé'} (Dir: ${dirName})` : (authFullName || 'Directeur'),
+            email: authEmail,
+            is_active: authRole === 'admin', // Les employés sont créés en attente de validation par le directeur
+          });
+        }
+
+        if (authRole === 'worker') {
+          Swal.fire({
+            icon: 'info',
+            title: 'Demande envoyée !',
+            html: `Votre compte employé a été créé et rattaché au <b>Directeur ${selectedDirector?.full_name || 'sélectionné'}</b>.<br/><br/>Le directeur doit activer votre compte dans la section <b>Utilisateurs</b> pour débloquer votre accès.`,
+            confirmButtonText: 'Compris',
+            confirmButtonColor: '#4f46e5',
+          });
+        } else {
+          Swal.fire({
+            icon: 'success',
+            title: 'Compte Directeur créé !',
+            text: `Bienvenue sur votre plateforme de gestion Brasti !`,
+            timer: 2000,
+            showConfirmButton: false,
+          });
+        }
+      }
     } catch (err) {
-      setAuthError('Erreur de connexion');
+      setAuthError(err?.message || 'Erreur de connexion');
     } finally {
       setAuthLoad(false);
     }
@@ -772,10 +879,137 @@ CONSIGNES STRICTES :
     <div className="auth-page">
       <div className="auth-card-premium animate-enter">
         <h1 className="auth-title">Brasti</h1>
-        <p style={{ color: 'var(--muted)', marginBottom: 32, fontSize: '0.95rem' }}>
+        <p style={{ color: 'var(--muted)', marginBottom: 20, fontSize: '0.95rem' }}>
           Gérez votre production & ventes facilement
         </p>
+
+        {/* ── Sélecteur de Rôle (Directeur vs Employé) ── */}
+        <div className="auth-role-tabs">
+          <button
+            type="button"
+            className={`auth-role-tab ${authRole === 'admin' ? 'active-admin' : ''}`}
+            onClick={() => setAuthRole('admin')}
+          >
+            <span className="role-tab-icon">🛡️</span>
+            <div className="role-tab-text">
+              <strong>Directeur</strong>
+              <small>Espace Admin</small>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            className={`auth-role-tab ${authRole === 'worker' ? 'active-worker' : ''}`}
+            onClick={() => setAuthRole('worker')}
+          >
+            <span className="role-tab-icon">👷</span>
+            <div className="role-tab-text">
+              <strong>Employé</strong>
+              <small>Espace Équipe</small>
+            </div>
+          </button>
+        </div>
+
+        <div className={`auth-role-hint ${authRole === 'admin' ? 'hint-admin' : 'hint-worker'}`}>
+          {authRole === 'admin'
+            ? '🛡️ Mode Directeur : Accès complet (chiffres, bénéfices, caisse, équipe, configuration)'
+            : '👷 Mode Employé : Saisie des ventes, fiches clients, stock & production'
+          }
+        </div>
+
         <form onSubmit={handleAuth}>
+          {authMode === 'reg' && (
+            <div className="auth-group">
+              <label>Nom complet</label>
+              <div className="auth-input-wrapper">
+                <Users size={18} />
+                <input
+                  type="text"
+                  required
+                  value={authFullName}
+                  onChange={e => setAuthFullName(e.target.value)}
+                  placeholder="Ex: Mohamed Alami"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* ── Choix du Directeur pour l'Employé ── */}
+          {authMode === 'reg' && authRole === 'worker' && (
+            <div className="auth-director-picker animate-enter">
+              <label className="picker-label">
+                <span>🏢 Choisir votre Directeur / Usine *</span>
+                <small>Sélectionnez le responsable avec qui vous allez travailler</small>
+              </label>
+
+              {/* Barre de Recherche */}
+              <div className="picker-search-bar">
+                <input
+                  type="text"
+                  value={directorSearch}
+                  onChange={e => setDirectorSearch(e.target.value)}
+                  placeholder="Rechercher par nom ou email..."
+                  className="picker-search-input"
+                />
+                <button
+                  type="button"
+                  className="picker-search-btn"
+                  onClick={fetchDirectors}
+                  title="Rafraîchir la liste"
+                >
+                  <Search size={15} />
+                  <span>Chercher</span>
+                </button>
+              </div>
+
+              {/* Liste des directeurs */}
+              <div className="directors-list-scroll">
+                {directorsLoading ? (
+                  <div className="picker-loading">Chargement des directeurs...</div>
+                ) : (
+                  directorsList
+                    .filter(d => {
+                      const q = directorSearch.toLowerCase().trim();
+                      if (!q) return true;
+                      return (d.full_name || '').toLowerCase().includes(q) || (d.email || '').toLowerCase().includes(q);
+                    })
+                    .map(dir => {
+                      const isSelected = selectedDirector?.id === dir.id;
+                      return (
+                        <div
+                          key={dir.id}
+                          className={`director-card-select ${isSelected ? 'selected' : ''}`}
+                          onClick={() => setSelectedDirector(dir)}
+                        >
+                          <div className="director-avatar">
+                            {(dir.full_name || dir.email || 'D')[0].toUpperCase()}
+                          </div>
+                          <div className="director-info">
+                            <strong className="director-name">{dir.full_name || 'Directeur'}</strong>
+                            <span className="director-email">{dir.email}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className={`btn-choose-director ${isSelected ? 'chosen' : ''}`}
+                            onClick={(e) => { e.stopPropagation(); setSelectedDirector(dir); }}
+                          >
+                            {isSelected ? '✓ Sélectionné' : 'Choisir'}
+                          </button>
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+
+              {selectedDirector && (
+                <div className="selected-director-badge">
+                  <CheckCircle size={15} />
+                  <span>Directeur choisi : <strong>{selectedDirector.full_name || selectedDirector.email}</strong></span>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="auth-group">
             <label>Email</label>
             <div className="auth-input-wrapper">
@@ -792,7 +1026,10 @@ CONSIGNES STRICTES :
           </div>
           {authError && <p style={{ color: '#ef4444', fontSize: '0.85rem', marginBottom: 12 }}>{authError}</p>}
           <button className="btn-auth-submit" disabled={authLoading}>
-            {authLoading ? '...' : authMode === 'login' ? 'Se connecter' : "S'inscrire"}
+            {authLoading ? '...' : authMode === 'login' 
+              ? (authRole === 'admin' ? 'Se connecter en tant que Directeur' : 'Se connecter en tant qu\'Employé') 
+              : (authRole === 'admin' ? 'Créer mon compte Directeur' : 'Créer mon compte Employé')
+            }
           </button>
           <div className="auth-divider"><span>OU</span></div>
           <button type="button" className="btn-google-auth" onClick={() => supabase.auth.signInWithOAuth({ provider: 'google' })}>
@@ -800,7 +1037,7 @@ CONSIGNES STRICTES :
             Continuer avec Google
           </button>
           <button type="button" className="auth-mode-switch" onClick={() => setAuthMode(authMode === 'login' ? 'reg' : 'login')}>
-            {authMode === 'login' ? 'Créer un compte' : 'Déjà inscrit ? Se connecter'}
+            {authMode === 'login' ? 'Créer un nouveau compte' : 'Déjà inscrit ? Se connecter'}
           </button>
         </form>
       </div>
