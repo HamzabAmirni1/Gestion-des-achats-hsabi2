@@ -110,7 +110,23 @@ export function useUserRole(session) {
     fetchRole();
   }, [fetchRole]);
 
-  return { role, isActive, profile, loading, refreshRole: fetchRole };
+  // Company ID: pour un directeur c'est son propre id, pour un employé c'est le director_id de son directeur
+  const companyId = (profile?.role === 'worker' && profile?.director_id) ? profile.director_id : session?.user?.id;
+
+  return { role, isActive, profile, loading, companyId, refreshRole: fetchRole };
+}
+
+/**
+ * Détermine l'identifiant de l'entreprise (espace de travail).
+ * - Directeur: son propre id
+ * - Employé: l'id de son directeur assigné
+ */
+export function getCompanyId(session, profile) {
+  if (!session?.user?.id) return null;
+  if (profile?.role === 'worker' && profile?.director_id) {
+    return profile.director_id;
+  }
+  return session.user.id;
 }
 
 /** Helper: true if the user is an admin */

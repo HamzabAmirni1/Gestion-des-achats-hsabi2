@@ -158,7 +158,7 @@ export default function App() {
   const [theme, setTheme]           = useState(() => localStorage.getItem('brasti-theme') || 'light');
 
   /* ── Role système ──────────────────────────── */
-  const { role: userRole, isActive, profile: userProfile, loading: roleLoading, refreshRole } = useUserRole(session);
+  const { role: userRole, isActive, profile: userProfile, loading: roleLoading, companyId, refreshRole } = useUserRole(session);
   const [activeTab, setActiveTab]   = useState(() => localStorage.getItem('brasti-tab') || 'dashboard');
 
   /* ── Sécurité & Réinitialisation onglet pour l'employé ── */
@@ -324,17 +324,18 @@ export default function App() {
   useEffect(() => { localStorage.setItem('brasti-tab', activeTab); }, [activeTab]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  /* ── Data fetching ───────────────────────── */
+  /* ── Data fetching (Isolé par entreprise / directeur) ── */
   const fetchData = async () => {
     if (!session) return;
+    const targetUid = companyId || session.user.id;
     setLoading(true);
     setDbError(null);
     try {
       const [{ data: a, error: ea }, { data: v, error: ev }, { data: p, error: ep }, { data: m, error: em }] = await Promise.all([
-        supabase.from('achats').select('*').order('date', { ascending: false }),
-        supabase.from('ventes').select('*').order('date', { ascending: false }),
-        supabase.from('products').select('*').order('nom'),
-        supabase.from('messages').select('*').order('created_at'),
+        supabase.from('achats').select('*').eq('user_id', targetUid).order('date', { ascending: false }),
+        supabase.from('ventes').select('*').eq('user_id', targetUid).order('date', { ascending: false }),
+        supabase.from('products').select('*').eq('user_id', targetUid).order('nom'),
+        supabase.from('messages').select('*').eq('user_id', targetUid).order('created_at'),
       ]);
       if (ea || ev || ep) throw (ea || ev || ep);
       setAchats(a || []); setVentes(v || []); setProducts(p || []); setMessages(m || []);
@@ -345,7 +346,9 @@ export default function App() {
       setLoading(false); 
     }
   };
-  useEffect(() => { fetchData(); }, [session]);
+  useEffect(() => { 
+    if (session) fetchData(); 
+  }, [session, companyId]);
 
   /* ── Computed stats ──────────────────────── */
   const totalVentes  = useMemo(() => ventes.reduce((s, v) => s + (v.total_prix || v.prix * v.quantite || 0), 0), [ventes]);
@@ -698,7 +701,8 @@ export default function App() {
     e.preventDefault(); setSubmit(true);
     try {
       let table = modalType === 'product' ? 'products' : modalType === 'achat' ? 'achats' : 'ventes';
-      const base = { user_id: session.user.id, nom: form.nom };
+      const targetUid = companyId || session.user.id;
+      const base = { user_id: targetUid, nom: form.nom };
       let item;
       if (modalType === 'product') {
         item = { ...base, prix_unitaire: +form.prix, stock_qty: +form.quantite };
@@ -815,12 +819,13 @@ export default function App() {
     const content = textToSend.trim();
     setChatInput('');
 
+    const targetUid = companyId || session.user.id;
     let userMsgId = Date.now();
     try {
-      const { data } = await supabase.from('messages').insert([{ user_id: session.user.id, sender: 'customer', content }]).select().single();
+      const { data } = await supabase.from('messages').insert([{ user_id: targetUid, sender: 'customer', content }]).select().single();
       if (data?.id) userMsgId = data.id;
     } catch {
-      supabase.from('messages').insert([{ user_id: session.user.id, sender: 'customer', content }]).then(() => {});
+      supabase.from('messages').insert([{ user_id: targetUid, sender: 'customer', content }]).then(() => {});
     }
 
     const userMsg = { id: userMsgId, sender: 'customer', content, created_at: new Date().toISOString() };
@@ -976,10 +981,10 @@ RÈGLE D'OR DE LA LANGUE (TRÈS IMPORTANT) :
 
       let botMsgId = Date.now() + 1;
       try {
-        const { data } = await supabase.from('messages').insert([{ user_id: session.user.id, sender: 'admin', content: botContent }]).select().single();
+        const { data } = await supabase.from('messages').insert([{ user_id: targetUid, sender: 'admin', content: botContent }]).select().single();
         if (data?.id) botMsgId = data.id;
       } catch {
-        supabase.from('messages').insert([{ user_id: session.user.id, sender: 'admin', content: botContent }]).then(() => {});
+        supabase.from('messages').insert([{ user_id: targetUid, sender: 'admin', content: botContent }]).then(() => {});
       }
 
       const botMsg = { id: botMsgId, sender: 'admin', content: botContent, is_bot: true, created_at: new Date().toISOString() };
@@ -1605,38 +1610,38 @@ RÈGLE D'OR DE LA LANGUE (TRÈS IMPORTANT) :
         )}
 
         {/* ── 2. CLIENTS (NOUVEAU MODULE) ─────────────────────────── */}
-        {activeTab === 'clients' && <ClientsModule session={session} theme={theme} />}
+        {activeTab === 'clients' && <ClientsModule session={session} theme={theme} companyId={companyId || session?.user?.id} />}
 
         {/* ── 3. PRODUITS & CODES-BARRES (NOUVEAU MODULE) ─────────── */}
-        {activeTab === 'produits' && <ProduitsModule session={session} theme={theme} />}
+        {activeTab === 'produits' && <ProduitsModule session={session} theme={theme} companyId={companyId || session?.user?.id} />}
 
         {/* ── 4. STOCK (STOCK ORIGINAL + MATIÈRES PREMIÈRES) ───────── */}
         {activeTab === 'stock' && (
           <div className="animate-enter">
-            <StockModule session={session} theme={theme} />
+            <StockModule session={session} theme={theme} companyId={companyId || session?.user?.id} />
           </div>
         )}
 
         {/* ── 5. PRODUCTION & RECETTES (NOUVEAU MODULE) ────────────── */}
-        {activeTab === 'production' && <ProductionModule session={session} theme={theme} />}
+        {activeTab === 'production' && <ProductionModule session={session} theme={theme} companyId={companyId || session?.user?.id} />}
 
         {/* ── 6. VENTES & FACTURES & BL (MODULE COMPLET) ──────────── */}
-        {activeTab === 'ventes' && <VentesModule session={session} theme={theme} />}
+        {activeTab === 'ventes' && <VentesModule session={session} theme={theme} companyId={companyId || session?.user?.id} />}
 
         {/* ── 7. ACHATS & FOURNISSEURS (NOUVEAU MODULE) ───────────── */}
-        {activeTab === 'achats' && <AchatsModule session={session} theme={theme} />}
+        {activeTab === 'achats' && <AchatsModule session={session} theme={theme} companyId={companyId || session?.user?.id} />}
 
         {/* ── 8. RÈGLEMENTS CLIENTS & FOURNISSEURS (NOUVEAU MODULE) ─ */}
-        {activeTab === 'reglements' && <ReglementsModule session={session} theme={theme} />}
+        {activeTab === 'reglements' && <ReglementsModule session={session} theme={theme} companyId={companyId || session?.user?.id} />}
 
         {/* ── 9. CAISSE & DÉPENSES (NOUVEAU MODULE) ───────────────── */}
-        {activeTab === 'caisse' && <CaisseModule session={session} theme={theme} />}
+        {activeTab === 'caisse' && <CaisseModule session={session} theme={theme} companyId={companyId || session?.user?.id} />}
 
         {/* ── 10. APPORTS, INVESTISSEMENTS & PRÊTS (NOUVEAU MODULE) ─ */}
-        {activeTab === 'apports' && <ApportsModule session={session} theme={theme} />}
+        {activeTab === 'apports' && <ApportsModule session={session} theme={theme} companyId={companyId || session?.user?.id} />}
 
         {/* ── 11. PERSONNEL & SALAIRES (NOUVEAU MODULE) ───────────── */}
-        {activeTab === 'personnel' && <PersonnelModule session={session} theme={theme} />}
+        {activeTab === 'personnel' && <PersonnelModule session={session} theme={theme} companyId={companyId || session?.user?.id} />}
 
         {/* ── 12. STATS TAB ORIGINAL ───────────────────────────────── */}
         {activeTab === 'stats' && (

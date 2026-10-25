@@ -7,7 +7,8 @@ import {
 import Swal from 'sweetalert2';
 import { format } from 'date-fns';
 
-export default function PersonnelModule({ session, theme }) {
+export default function PersonnelModule({ session, theme, companyId }) {
+  const targetUid = companyId || session?.user?.id;
   const [activeTab, setActiveTab] = useState('equipe'); // 'equipe' | 'salaires'
   const [profiles, setProfiles] = useState([]);
   const [salaires, setSalaires] = useState([]);
@@ -28,13 +29,13 @@ export default function PersonnelModule({ session, theme }) {
   });
 
   const fetchData = useCallback(async () => {
-    if (!session) return;
+    if (!session || !targetUid) return;
     setLoading(true);
     try {
       const [profRes, salRes, ventRes] = await Promise.all([
         supabase.from('profiles').select('*').order('created_at', { ascending: false }),
-        supabase.from('salaires').select('*').order('date_paiement', { ascending: false }),
-        supabase.from('ventes').select('*').order('date', { ascending: false })
+        supabase.from('salaires').select('*').eq('user_id', targetUid).order('date_paiement', { ascending: false }),
+        supabase.from('ventes').select('*').eq('user_id', targetUid).order('date', { ascending: false })
       ]);
 
       setProfiles(profRes.data || []);
@@ -45,16 +46,16 @@ export default function PersonnelModule({ session, theme }) {
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [session, targetUid]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  // Filtrer uniquement les employés (ou utilisateurs sans rôle admin)
+  // Filtrer uniquement les employés rattachés à ce Directeur
   const workers = useMemo(() => {
-    return profiles.filter(p => p.role === 'worker');
-  }, [profiles]);
+    return profiles.filter(p => p.role === 'worker' && (p.director_id === targetUid || !p.director_id));
+  }, [profiles, targetUid]);
 
   // Calcul de l'activité pour chaque employé (Chno dar)
   const workerStats = useMemo(() => {
@@ -168,7 +169,7 @@ export default function PersonnelModule({ session, theme }) {
 
     try {
       const payload = {
-        user_id: session.user.id,
+        user_id: targetUid,
         employe_id: salForm.employe_id || null,
         employe_nom: salForm.employe_nom,
         montant: +salForm.montant,
@@ -186,7 +187,7 @@ export default function PersonnelModule({ session, theme }) {
       if (salForm.statut === 'paye') {
         try {
           await supabase.from('caisse').insert([{
-            user_id: session.user.id,
+            user_id: targetUid,
             type: 'sortie',
             categorie: 'salaire',
             montant: +salForm.montant,
