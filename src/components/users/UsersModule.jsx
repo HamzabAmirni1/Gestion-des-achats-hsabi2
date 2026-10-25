@@ -301,17 +301,29 @@ export default function UsersModule({ session }) {
                       {/* Utilisateur */}
                       <td style={{ padding: '14px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{
-                            width: 38, height: 38, borderRadius: '50%',
-                            background: profile.role === 'admin'
-                              ? 'linear-gradient(135deg,#4f46e5,#7c3aed)'
-                              : 'linear-gradient(135deg,#0ea5e9,#06b6d4)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            color: 'white', fontWeight: 900, fontSize: '1rem',
-                            flexShrink: 0,
-                          }}>
-                            {(profile.full_name || profile.email || 'U')[0].toUpperCase()}
-                          </div>
+                          {profile.avatar_url ? (
+                            <img
+                              src={profile.avatar_url}
+                              alt=""
+                              style={{
+                                width: 38, height: 38, borderRadius: '50%',
+                                objectFit: 'cover', flexShrink: 0,
+                                border: '1.5px solid var(--primary)',
+                              }}
+                            />
+                          ) : (
+                            <div style={{
+                              width: 38, height: 38, borderRadius: '50%',
+                              background: profile.role === 'admin'
+                                ? 'linear-gradient(135deg,#4f46e5,#7c3aed)'
+                                : 'linear-gradient(135deg,#0ea5e9,#06b6d4)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              color: 'white', fontWeight: 900, fontSize: '1rem',
+                              flexShrink: 0,
+                            }}>
+                              {(profile.full_name || profile.email || 'U')[0].toUpperCase()}
+                            </div>
+                          )}
                           <div>
                             <div style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text)' }}>
                               {profile.full_name || '—'}
@@ -323,6 +335,7 @@ export default function UsersModule({ session }) {
                             </div>
                           </div>
                         </div>
+                      </td>
                       </td>
 
                       {/* Email */}
