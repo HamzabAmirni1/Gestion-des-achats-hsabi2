@@ -336,7 +336,6 @@ export default function UsersModule({ session }) {
                           </div>
                         </div>
                       </td>
-                      </td>
 
                       {/* Email */}
                       <td style={{ padding: '14px 16px', fontSize: '0.82rem', color: 'var(--muted)' }}>
