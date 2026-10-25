@@ -3,12 +3,12 @@ import {
   Download, Sun, RefreshCw, LogOut, Send, X, Plus, Printer, Mail, Lock, 
   TrendingUp, AlertTriangle, ShoppingBag, Bell, Smartphone, Trash2,
   Users, Package, Factory, ShoppingCart, Truck, Wallet, UserCheck, DollarSign, Layers,
-  Shield, User, CheckCircle, Search
+  Shield, User, CheckCircle, Search, MapPin, Calendar, Phone
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { supabase, pingSupabase } from './supabaseClient';
+import { supabase, pingSupabase, safeUpsertProfile } from './supabaseClient';
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import Swal from 'sweetalert2';
@@ -107,7 +107,10 @@ export default function App() {
   const [session, setSession]       = useState(null);
   const [authMode, setAuthMode]     = useState('login');
   const [authRole, setAuthRole]     = useState('admin'); // 'admin' (Directeur) ou 'worker' (Employé)
-  const [authFullName, setAuthFullName] = useState('');
+  const [authFullName, setAuthFullName]   = useState('');
+  const [authTel, setAuthTel]             = useState('');
+  const [authAddress, setAuthAddress]     = useState('');
+  const [authBirthdate, setAuthBirthdate] = useState('');
   const [authEmail, setAuthEmail]   = useState('');
   const [authPassword, setAuthPass] = useState('');
   const [authLoading, setAuthLoad]  = useState(false);
@@ -155,8 +158,72 @@ export default function App() {
   const [theme, setTheme]           = useState(() => localStorage.getItem('brasti-theme') || 'light');
 
   /* ── Role système ──────────────────────────── */
-  const { role: userRole, loading: roleLoading } = useUserRole(session);
+  const { role: userRole, isActive, profile: userProfile, loading: roleLoading, refreshRole } = useUserRole(session);
   const [activeTab, setActiveTab]   = useState(() => localStorage.getItem('brasti-tab') || 'dashboard');
+
+  /* ── Complétion profil Google pour Employé ── */
+  const [googleModalOpen, setGoogleModalOpen] = useState(false);
+  const [googleTel, setGoogleTel]             = useState('');
+  const [googleAddress, setGoogleAddress]     = useState('');
+  const [googleBirthdate, setGoogleBirthdate] = useState('');
+
+  useEffect(() => {
+    if (session && userRole === 'worker' && userProfile) {
+      if (!userProfile.tel || !userProfile.adresse || !userProfile.date_naissance) {
+        setGoogleModalOpen(true);
+      } else {
+        setGoogleModalOpen(false);
+      }
+    }
+  }, [session, userRole, userProfile]);
+
+  const handleCompleteGoogleProfile = async (e) => {
+    e.preventDefault();
+    if (!googleTel || !googleAddress || !googleBirthdate) {
+      Swal.fire('Erreur', 'Veuillez remplir tous les champs obligatoires.', 'error');
+      return;
+    }
+
+    try {
+      const dirName = selectedDirector ? (selectedDirector.full_name || selectedDirector.email) : 'Directeur Principal';
+      const updateData = {
+        id: session.user.id,
+        role: 'worker',
+        full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
+        email: session.user.email,
+        tel: googleTel,
+        adresse: googleAddress,
+        date_naissance: googleBirthdate,
+        director_id: selectedDirector?.id || null,
+        director_name: dirName,
+        is_active: false,
+      };
+
+      await safeUpsertProfile(updateData);
+      await supabase.auth.updateUser({
+        data: {
+          role: 'worker',
+          tel: googleTel,
+          adresse: googleAddress,
+          date_naissance: googleBirthdate,
+          director_id: selectedDirector?.id || null,
+          director_name: dirName,
+        }
+      });
+
+      setGoogleModalOpen(false);
+      refreshRole();
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Demande envoyée !',
+        html: `Vos informations ont été transmises au <b>Directeur ${dirName}</b>.<br/><br/>Votre compte est en attente de sa validation.`,
+        confirmButtonColor: '#4f46e5'
+      });
+    } catch (err) {
+      Swal.fire('Erreur', err.message, 'error');
+    }
+  };
 
   const [achats, setAchats]       = useState([]);
   const [ventes, setVentes]       = useState([]);
@@ -545,6 +612,15 @@ export default function App() {
         }
       } else {
         // Mode Inscription (Sign Up)
+        if (authRole === 'worker') {
+          if (!authFullName || !authTel || !authAddress || !authBirthdate) {
+            setAuthError('Veuillez remplir tous les champs obligatoires (Nom, Téléphone, Adresse, Date de naissance).');
+            setAuthLoad(false);
+            return;
+          }
+        }
+
+        const dirName = selectedDirector ? (selectedDirector.full_name || selectedDirector.email) : 'Directeur Principal';
         const { data, error } = await supabase.auth.signUp({
           email: authEmail,
           password: authPassword,
@@ -552,27 +628,37 @@ export default function App() {
             data: {
               full_name: authFullName || authEmail.split('@')[0],
               role: authRole,
+              tel: authTel,
+              adresse: authAddress,
+              date_naissance: authBirthdate,
+              director_id: selectedDirector?.id || null,
+              director_name: dirName,
             }
           }
         });
         if (error) throw error;
 
         if (data?.user?.id) {
-          const dirName = selectedDirector ? (selectedDirector.full_name || selectedDirector.email) : 'Directeur Principal';
-          await supabase.from('profiles').upsert({
+          const profData = {
             id: data.user.id,
             role: authRole,
-            full_name: authRole === 'worker' ? `${authFullName || 'Employé'} (Dir: ${dirName})` : (authFullName || 'Directeur'),
+            full_name: authFullName || (authRole === 'worker' ? 'Employé' : 'Directeur'),
             email: authEmail,
+            tel: authTel,
+            adresse: authAddress,
+            date_naissance: authBirthdate,
+            director_id: selectedDirector?.id || null,
+            director_name: dirName,
             is_active: authRole === 'admin', // Les employés sont créés en attente de validation par le directeur
-          });
+          };
+          await safeUpsertProfile(profData);
         }
 
         if (authRole === 'worker') {
           Swal.fire({
             icon: 'info',
-            title: 'Demande envoyée !',
-            html: `Votre compte employé a été créé et rattaché au <b>Directeur ${selectedDirector?.full_name || 'sélectionné'}</b>.<br/><br/>Le directeur doit activer votre compte dans la section <b>Utilisateurs</b> pour débloquer votre accès.`,
+            title: 'Demande envoyée au Directeur !',
+            html: `Votre dossier complet a été transmis au <b>Directeur ${dirName}</b>.<br/><br/>Vos coordonnées :<br/>• Tél : ${authTel}<br/>• Adresse : ${authAddress}<br/>• Naissance : ${authBirthdate}<br/><br/>Votre compte est en attente de sa validation pour accéder à l'application.`,
             confirmButtonText: 'Compris',
             confirmButtonColor: '#4f46e5',
           });
@@ -920,7 +1006,7 @@ CONSIGNES STRICTES :
         <form onSubmit={handleAuth}>
           {authMode === 'reg' && (
             <div className="auth-group">
-              <label>Nom complet</label>
+              <label>Nom complet *</label>
               <div className="auth-input-wrapper">
                 <Users size={18} />
                 <input
@@ -932,6 +1018,54 @@ CONSIGNES STRICTES :
                 />
               </div>
             </div>
+          )}
+
+          {/* ── Coordonnées requises pour l'Employé ── */}
+          {authMode === 'reg' && authRole === 'worker' && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="auth-group" style={{ marginBottom: 12 }}>
+                  <label>Téléphone *</label>
+                  <div className="auth-input-wrapper">
+                    <Phone size={16} />
+                    <input
+                      type="tel"
+                      required
+                      value={authTel}
+                      onChange={e => setAuthTel(e.target.value)}
+                      placeholder="06XXXXXXXX"
+                    />
+                  </div>
+                </div>
+
+                <div className="auth-group" style={{ marginBottom: 12 }}>
+                  <label>Date de Naissance *</label>
+                  <div className="auth-input-wrapper">
+                    <Calendar size={16} />
+                    <input
+                      type="date"
+                      required
+                      value={authBirthdate}
+                      onChange={e => setAuthBirthdate(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="auth-group">
+                <label>Adresse Complète *</label>
+                <div className="auth-input-wrapper">
+                  <MapPin size={18} />
+                  <input
+                    type="text"
+                    required
+                    value={authAddress}
+                    onChange={e => setAuthAddress(e.target.value)}
+                    placeholder="Quartier, Ville..."
+                  />
+                </div>
+              </div>
+            </>
           )}
 
           {/* ── Choix du Directeur pour l'Employé ── */}
@@ -1060,6 +1194,169 @@ CONSIGNES STRICTES :
         Vérification des droits d'accès...
       </div>
       <div style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{session.user.email}</div>
+    </div>
+  );
+
+  /* ── Modal Complétion Profil Google (Pour Employé) ── */
+  if (session && userRole === 'worker' && googleModalOpen) return (
+    <div className="auth-page">
+      <div className="auth-card-premium animate-enter" style={{ maxWidth: 480 }}>
+        <div style={{
+          width: 56, height: 56, borderRadius: '50%',
+          background: 'linear-gradient(135deg, #0ea5e9, #0284c7)',
+          color: 'white', fontSize: '1.6rem', margin: '0 auto 12px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>📝</div>
+
+        <h2 style={{ margin: '0 0 6px', fontWeight: 900, color: 'var(--text)' }}>
+          Complétez votre fiche Employé
+        </h2>
+        <p style={{ color: 'var(--muted)', fontSize: '0.85rem', margin: '0 0 20px', lineHeight: 1.5 }}>
+          Pour envoyer votre demande au Directeur, veuillez renseigner vos coordonnées.
+        </p>
+
+        <form onSubmit={handleCompleteGoogleProfile}>
+          <div className="auth-group">
+            <label>Téléphone *</label>
+            <div className="auth-input-wrapper">
+              <Phone size={18} />
+              <input
+                type="tel"
+                required
+                value={googleTel}
+                onChange={e => setGoogleTel(e.target.value)}
+                placeholder="06XXXXXXXX"
+              />
+            </div>
+          </div>
+
+          <div className="auth-group">
+            <label>Adresse Complète *</label>
+            <div className="auth-input-wrapper">
+              <MapPin size={18} />
+              <input
+                type="text"
+                required
+                value={googleAddress}
+                onChange={e => setGoogleAddress(e.target.value)}
+                placeholder="Quartier, Ville..."
+              />
+            </div>
+          </div>
+
+          <div className="auth-group">
+            <label>Date de Naissance *</label>
+            <div className="auth-input-wrapper">
+              <Calendar size={18} />
+              <input
+                type="date"
+                required
+                value={googleBirthdate}
+                onChange={e => setGoogleBirthdate(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Choix du directeur */}
+          <div className="auth-director-picker" style={{ margin: '14px 0' }}>
+            <label className="picker-label">
+              <span>🏢 Choisir votre Directeur / Usine *</span>
+            </label>
+            <div className="directors-list-scroll">
+              {directorsList.map(dir => (
+                <div
+                  key={dir.id}
+                  className={`director-card-select ${selectedDirector?.id === dir.id ? 'selected' : ''}`}
+                  onClick={() => setSelectedDirector(dir)}
+                >
+                  <div className="director-avatar">{(dir.full_name || dir.email || 'D')[0].toUpperCase()}</div>
+                  <div className="director-info">
+                    <strong className="director-name">{dir.full_name || 'Directeur'}</strong>
+                    <span className="director-email">{dir.email}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={`btn-choose-director ${selectedDirector?.id === dir.id ? 'chosen' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); setSelectedDirector(dir); }}
+                  >
+                    {selectedDirector?.id === dir.id ? '✓ Choisi' : 'Choisir'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <button className="btn-auth-submit" style={{ marginTop: 8 }}>
+            Envoyer ma demande au Directeur
+          </button>
+          <button
+            type="button"
+            className="auth-mode-switch"
+            onClick={() => supabase.auth.signOut()}
+          >
+            Annuler & Se déconnecter
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+
+  /* ── Écran d'attente : Demande en attente de validation par le Directeur ── */
+  if (session && userRole === 'worker' && !isActive) return (
+    <div className="auth-page">
+      <div className="auth-card-premium animate-enter" style={{ maxWidth: 480 }}>
+        <div style={{
+          width: 72, height: 72, borderRadius: '50%',
+          background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+          color: 'white', fontSize: '2.2rem', margin: '0 auto 16px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 8px 24px rgba(245, 158, 11, 0.3)'
+        }}>⏳</div>
+
+        <h2 style={{ margin: '0 0 8px', fontWeight: 900, color: 'var(--text)' }}>
+          Demande en attente de validation
+        </h2>
+        <p style={{ color: 'var(--muted)', fontSize: '0.9rem', margin: '0 0 20px', lineHeight: 1.5 }}>
+          Bonjour <strong>{userProfile?.full_name || session.user.email}</strong>, votre demande pour rejoindre l'équipe a bien été transmise au Directeur.
+        </p>
+
+        <div style={{
+          background: 'var(--bg)', borderRadius: 16, padding: '16px 18px',
+          textAlign: 'left', fontSize: '0.84rem', marginBottom: 20,
+          display: 'flex', flexDirection: 'column', gap: 8,
+          border: '1.5px solid var(--card-border)'
+        }}>
+          <div style={{ color: 'var(--primary)', fontWeight: 800, marginBottom: 2 }}>
+            📋 RÉCAPITULATIF DE VOTRE DOSSIER :
+          </div>
+          <div><strong>Nom complet :</strong> {userProfile?.full_name || '—'}</div>
+          <div><strong>Téléphone :</strong> {userProfile?.tel || '—'}</div>
+          <div><strong>Adresse :</strong> {userProfile?.adresse || '—'}</div>
+          <div><strong>Date de naissance :</strong> {userProfile?.date_naissance || '—'}</div>
+          <div><strong>Gmail :</strong> {userProfile?.email || session.user.email}</div>
+          <div><strong>Directeur rattaché :</strong> {userProfile?.director_name || 'Directeur Principal'}</div>
+          <div style={{ color: '#b45309', fontWeight: 800, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>⚠️</span> Statut : En attente d'approbation par le Directeur
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button
+            className="btn-primary"
+            style={{ padding: '14px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none' }}
+            onClick={refreshRole}
+          >
+            🔄 Vérifier si mon compte a été validé
+          </button>
+          <button
+            className="btn-secondary"
+            style={{ padding: '12px' }}
+            onClick={() => supabase.auth.signOut()}
+          >
+            🚪 Se déconnecter
+          </button>
+        </div>
+      </div>
     </div>
   );
 
