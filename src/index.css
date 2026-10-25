@@ -321,6 +321,45 @@ body {
 .empty-state p { font-weight: 700; font-size: 1.05rem; color: var(--text); }
 .empty-state small { font-size: 0.85rem; color: var(--muted); }
 
+/* ── FORMATTED MESSAGE BODY ────────────────── */
+.msg-formatted-body {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 0.91rem; line-height: 1.6; font-weight: 500;
+}
+.msg-header-row {
+  font-weight: 800; font-size: 0.95rem; letter-spacing: -0.2px;
+  margin-bottom: 2px;
+}
+.msg-text-row {
+  font-weight: 500;
+}
+.msg-bullet-row {
+  display: flex; align-items: flex-start; gap: 8px; padding-left: 2px;
+}
+.msg-bullet-dot {
+  color: var(--primary); font-weight: 900; font-size: 1rem; line-height: 1.5; flex-shrink: 0;
+}
+.msg-bullet-text {
+  flex: 1; font-weight: 550;
+}
+.msg-strong {
+  font-weight: 800; color: var(--primary);
+}
+.msg-bot .msg-strong {
+  color: #4f46e5;
+}
+.msg-user .msg-strong {
+  color: rgba(255,255,255,0.95);
+}
+.msg-code {
+  background: rgba(79,70,229,0.1); color: #4f46e5;
+  padding: 1px 6px; border-radius: 6px; font-size: 0.82rem; font-family: monospace;
+}
+.msg-user .msg-code {
+  background: rgba(255,255,255,0.2); color: white;
+}
+.msg-empty-spacer { height: 6px; }
+
 /* ── CHAT STYLING ────────────────────────── */
 .chat-window-card {
   display: flex; flex-direction: column; height: 560px;
