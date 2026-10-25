@@ -100,6 +100,269 @@ body {
 
 .auth-mode-switch { background: none; border: none; color: var(--primary); font-weight: 700; cursor: pointer; margin-top: 20px; text-decoration: underline; font-family: 'Outfit', sans-serif; font-size: 0.9rem; }
 
+/* ── AUTH ROLE SELECTOR (Directeur vs Employé) ── */
+.auth-role-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+  background: var(--card-border);
+  padding: 6px;
+  border-radius: 18px;
+}
+
+.auth-role-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 10px;
+  border: 2px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  font-family: inherit;
+}
+
+.auth-role-tab.active-admin {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: white;
+  box-shadow: 0 6px 18px rgba(79, 70, 229, 0.35);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.auth-role-tab.active-worker {
+  background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+  color: white;
+  box-shadow: 0 6px 18px rgba(14, 165, 233, 0.35);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.auth-role-tab:not(.active-admin):not(.active-worker) {
+  color: var(--muted);
+}
+.auth-role-tab:not(.active-admin):not(.active-worker):hover {
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--text);
+}
+
+.role-tab-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.role-tab-text {
+  text-align: left;
+}
+
+.role-tab-text strong {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.role-tab-text small {
+  display: block;
+  font-size: 0.68rem;
+  opacity: 0.88;
+}
+
+.auth-role-hint {
+  font-size: 0.78rem;
+  padding: 9px 12px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.4;
+  transition: all 0.2s;
+}
+
+.auth-role-hint.hint-admin {
+  background: rgba(79, 70, 229, 0.08);
+  color: #4f46e5;
+  border: 1px solid rgba(79, 70, 229, 0.2);
+}
+
+.auth-role-hint.hint-worker {
+  background: rgba(14, 165, 233, 0.08);
+  color: #0284c7;
+  border: 1px solid rgba(14, 165, 233, 0.2);
+}
+
+/* ── DIRECTOR PICKER FOR WORKERS ── */
+.auth-director-picker {
+  background: var(--bg);
+  border: 1.5px solid var(--card-border);
+  border-radius: 20px;
+  padding: 16px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.picker-label {
+  display: block;
+  margin-bottom: 12px;
+}
+.picker-label span {
+  display: block;
+  font-weight: 800;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+.picker-label small {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.picker-search-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.picker-search-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1.5px solid var(--card-border);
+  border-radius: 12px;
+  font-size: 0.88rem;
+  background: var(--card);
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+}
+.picker-search-input:focus {
+  border-color: var(--primary);
+}
+
+.picker-search-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  color: white;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.picker-search-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+}
+
+.directors-list-scroll {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.director-card-select {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--card-border);
+  border-radius: 14px;
+  background: var(--card);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.director-card-select:hover {
+  border-color: var(--primary);
+  transform: translateX(2px);
+}
+.director-card-select.selected {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.director-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: white;
+  font-weight: 900;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.director-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.director-name {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.director-email {
+  display: block;
+  font-size: 0.74rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-choose-director {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #f1f5f9;
+  color: var(--text);
+}
+.btn-choose-director.chosen {
+  background: #10b981;
+  color: white;
+}
+
+.selected-director-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.picker-loading, .picker-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
 /* ── MAIN LAYOUT ────────────────────────── */
 .app-wrapper { width: 100%; max-width: 1140px; margin: 0 auto; padding: 0 16px 80px; }
 
