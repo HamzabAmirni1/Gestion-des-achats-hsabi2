@@ -23,6 +23,8 @@ import ReglementsModule from './components/reglements/ReglementsModule';
 import CaisseModule     from './components/caisse/CaisseModule';
 import ApportsModule    from './components/apports/ApportsModule';
 import PersonnelModule  from './components/personnel/PersonnelModule';
+import UsersModule      from './components/users/UsersModule';
+import { useUserRole, isAdmin as checkAdmin, WORKER_TABS, ADMIN_ONLY_TABS } from './hooks/useUserRole';
 import { getGeminiReply } from './services/aiService';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
@@ -108,6 +110,9 @@ export default function App() {
   const [authLoading, setAuthLoad]  = useState(false);
   const [authError, setAuthError]   = useState('');
   const [theme, setTheme]           = useState(() => localStorage.getItem('brasti-theme') || 'light');
+
+  /* ── Role système ──────────────────────────── */
+  const { role: userRole, loading: roleLoading } = useUserRole(session);
   const [activeTab, setActiveTab]   = useState(() => localStorage.getItem('brasti-tab') || 'dashboard');
 
   const [achats, setAchats]       = useState([]);
@@ -136,6 +141,28 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => subscription.unsubscribe();
   }, []);
+
+  /* ── is_active check: sign out if account disabled ────────────── */
+  useEffect(() => {
+    if (!session || roleLoading || userRole === null) return;
+    const checkActive = async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('is_active')
+        .eq('id', session.user.id)
+        .single();
+      if (data && data.is_active === false) {
+        await supabase.auth.signOut();
+        Swal.fire({
+          icon: 'error',
+          title: 'Compte désactivé',
+          text: 'Votre compte a été désactivé par l\'administrateur. Contactez le directeur.',
+          confirmButtonColor: '#ef4444',
+        });
+      }
+    };
+    checkActive();
+  }, [session, userRole, roleLoading]);
 
   /* ── Supabase Keep-Alive ────────────────── */
   useEffect(() => {
@@ -780,25 +807,53 @@ CONSIGNES STRICTES :
     </div>
   );
 
+  /* ── Role loading screen ── */
+  if (session && roleLoading) return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'var(--bg)', flexDirection: 'column', gap: 16,
+    }}>
+      <div style={{
+        width: 60, height: 60, borderRadius: '50%',
+        background: 'linear-gradient(135deg,#4f46e5,#7c3aed)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: '1.8rem',
+      }}>🔐</div>
+      <div style={{ fontWeight: 800, color: 'var(--text)', fontSize: '1rem' }}>
+        Vérification des droits d'accès...
+      </div>
+      <div style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{session.user.email}</div>
+    </div>
+  );
+
   /* ═══════════════════════════════════════════
      ALL APP TABS LIST
   ════════════════════════════════════════════ */
-  const TABS_LIST = [
-    { id: 'dashboard',   label: 'Dashboard',   icon: '🏠' },
-    { id: 'clients',     label: 'Clients',     icon: '👥' },
-    { id: 'produits',    label: 'Produits',    icon: '🏷️' },
-    { id: 'stock',       label: 'Stock',       icon: '📦' },
-    { id: 'production',  label: 'Production',  icon: '🏭' },
-    { id: 'ventes',      label: 'Ventes',      icon: '🛒' },
-    { id: 'achats',      label: 'Achats',      icon: '🚚' },
-    { id: 'reglements',  label: 'Règlements',  icon: '💳' },
-    { id: 'caisse',      label: 'Caisse',      icon: '💰' },
-    { id: 'apports',     label: 'Apports',     icon: '📈' },
-    { id: 'personnel',   label: 'Personnel',   icon: '👷' },
-    { id: 'stats',       label: 'Stats',       icon: '📊' },
-    { id: 'chat',        label: 'AI Chat',     icon: '🤖' },
-    { id: 'dev',         label: 'Dev',         icon: '👨‍💻' },
+  const ALL_TABS = [
+    { id: 'dashboard',   label: 'Dashboard',     icon: '🏠' },
+    { id: 'clients',     label: 'Clients',       icon: '👥' },
+    { id: 'produits',    label: 'Produits',      icon: '🏷️' },
+    { id: 'stock',       label: 'Stock',         icon: '📦' },
+    { id: 'production',  label: 'Production',    icon: '🏭' },
+    { id: 'ventes',      label: 'Ventes',        icon: '🛒' },
+    { id: 'achats',      label: 'Achats',        icon: '🚚' },
+    { id: 'reglements',  label: 'Règlements',    icon: '💳' },
+    { id: 'caisse',      label: 'Caisse',        icon: '💰' },
+    { id: 'apports',     label: 'Apports',       icon: '📈' },
+    { id: 'personnel',   label: 'Personnel',     icon: '👷' },
+    { id: 'stats',       label: 'Stats',         icon: '📊' },
+    { id: 'utilisateurs',label: 'Utilisateurs',  icon: '🔐' }, // admin only
+    { id: 'chat',        label: 'AI Chat',       icon: '🤖' },
+    { id: 'dev',         label: 'Dev',           icon: '👨‍💻' },   // admin only
   ];
+
+  // Filter tabs by role
+  const TABS_LIST = ALL_TABS.filter(tab => {
+    if (ADMIN_ONLY_TABS.has(tab.id) || tab.id === 'utilisateurs') {
+      return checkAdmin(userRole);
+    }
+    return true; // visible to everyone
+  });
 
   /* ═══════════════════════════════════════════
      MAIN APP
@@ -812,8 +867,19 @@ CONSIGNES STRICTES :
           <span style={{ verticalAlign: 'middle' }}>Brasti Platform</span>
         </div>
         <div className="header-actions">
+          {/* Role badge */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '5px 12px', borderRadius: 20, fontSize: '0.74rem', fontWeight: 800,
+            background: checkAdmin(userRole) ? 'linear-gradient(135deg,#4f46e5,#7c3aed)' : 'linear-gradient(135deg,#0ea5e9,#06b6d4)',
+            color: 'white',
+          }}>
+            {checkAdmin(userRole) ? '🛡️ Directeur' : '👷 Employé'}
+          </div>
           <button className="icon-btn" onClick={fetchData} title="Rafraîchir"><RefreshCw size={18} /></button>
-          <button className="icon-btn" style={{ background: 'var(--primary)', color: 'white', border: 'none' }} onClick={generateFullReport} title="Télécharger Rapport PDF"><Download size={18} /></button>
+          {checkAdmin(userRole) && (
+            <button className="icon-btn" style={{ background: 'var(--primary)', color: 'white', border: 'none' }} onClick={generateFullReport} title="Télécharger Rapport PDF"><Download size={18} /></button>
+          )}
           <button className="icon-btn" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')} title="Thème"><Sun size={18} /></button>
           <button className="icon-btn" onClick={() => supabase.auth.signOut()} title="Déconnexion"><LogOut size={18} /></button>
         </div>
@@ -1233,6 +1299,22 @@ CONSIGNES STRICTES :
                 <a href="https://hamzaamirni.netlify.app" target="_blank" rel="noopener noreferrer" style={{ padding:'10px 20px', background:'rgba(79,70,229,0.1)', color:'var(--primary)', border:'1.5px solid rgba(79,70,229,0.2)', borderRadius:14, fontSize:'0.82rem', fontWeight:800, textDecoration:'none' }}>💼 Mon Portfolio</a>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── UTILISATEURS — Admin only ──────────────────────────────── */}
+        {activeTab === 'utilisateurs' && checkAdmin(userRole) && (
+          <UsersModule session={session} />
+        )}
+
+        {/* ── Worker Access Guard: show if worker tries admin-only tab ── */}
+        {ADMIN_ONLY_TABS.has(activeTab) && !checkAdmin(userRole) && (
+          <div className="animate-enter" style={{ textAlign: 'center', padding: '60px 20px' }}>
+            <div style={{ fontSize: '4rem', marginBottom: 16 }}>🔒</div>
+            <h3 style={{ fontWeight: 900, color: 'var(--text)', marginBottom: 8 }}>Accès Restreint</h3>
+            <p style={{ color: 'var(--muted)', fontSize: '0.9rem', maxWidth: 380, margin: '0 auto' }}>
+              Cette section est réservée au <strong>Directeur</strong>. Contactez votre responsable si vous avez besoin d'y accéder.
+            </p>
           </div>
         )}
 
