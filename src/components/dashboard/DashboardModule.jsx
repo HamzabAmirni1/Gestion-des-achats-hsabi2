@@ -1,26 +1,27 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import {
-  TrendingUp, TrendingDown, DollarSign, ShoppingBag, Users, Package,
-  BarChart2, AlertTriangle, Calendar, RefreshCw, Download
+  TrendingUp, DollarSign, Package, AlertTriangle, RefreshCw,
+  Wallet, Truck, Archive, Receipt, Users
 } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
-import { jsPDF } from 'jspdf';
+import { format, subMonths } from 'date-fns';
 
-export default function DashboardModule({ session, theme }) {
+export default function DashboardModule({ session, theme, companyId }) {
+  const targetUid = companyId || session?.user?.id;
   const [data, setData] = useState({
     ventes: [], achats: [], produits: [], clients: [],
-    caisse: [], depenses: [], personnel: [], productions: []
+    caisse: [], depenses: [], personnel: [], productions: [],
+    salaires: [], apports: []
   });
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState('month'); // 'week' | 'month' | 'year'
+  const [period, setPeriod] = useState('month');
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { fetchAll(); }, [targetUid]);
 
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [v, a, p, c, ca, dep, per, prod] = await Promise.all([
+      const [v, a, p, c, ca, dep, per, prod, sal, app] = await Promise.all([
         supabase.from('ventes').select('*').order('date', { ascending: false }),
         supabase.from('achats').select('*').order('date', { ascending: false }),
         supabase.from('products').select('*').order('nom'),
@@ -29,11 +30,14 @@ export default function DashboardModule({ session, theme }) {
         supabase.from('depenses').select('*').order('date', { ascending: false }),
         supabase.from('personnel').select('*'),
         supabase.from('productions').select('*').order('date', { ascending: false }),
+        supabase.from('salaires').select('*').order('date', { ascending: false }),
+        supabase.from('apports').select('*').order('date', { ascending: false }),
       ]);
       setData({
         ventes: v.data || [], achats: a.data || [], produits: p.data || [],
         clients: c.data || [], caisse: ca.data || [], depenses: dep.data || [],
-        personnel: per.data || [], productions: prod.data || []
+        personnel: per.data || [], productions: prod.data || [],
+        salaires: sal.data || [], apports: app.data || []
       });
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
@@ -55,18 +59,39 @@ export default function DashboardModule({ session, theme }) {
     const ventesP = filterByPeriod(data.ventes);
     const achatsP = filterByPeriod(data.achats);
     const depP = filterByPeriod(data.depenses);
-    const prodP = filterByPeriod(data.productions);
+    const salP = filterByPeriod(data.salaires);
 
     const ca = ventesP.reduce((s, v) => s + (v.total_prix || v.quantite * v.prix_unitaire || 0), 0);
     const creances = data.ventes.filter(v => !v.est_paye).reduce((s, v) => s + (v.total_prix || 0), 0);
+    const dettesF = data.achats.filter(a => !a.est_paye).reduce((s, a) => s + (a.total_prix || a.prix_unitaire * a.quantite || 0), 0);
     const achatsTotal = achatsP.reduce((s, a) => s + (a.total_prix || a.quantite * a.prix_unitaire || 0), 0);
-    const depenses = depP.reduce((s, d) => s + d.montant, 0);
-    const benefice = ca - achatsTotal - depenses;
-    const stockAlertes = data.produits.filter(p => p.stock_qty <= p.seuil_alerte).length;
+    const depenses = depP.reduce((s, d) => s + (d.montant || 0), 0);
+    const salaires = salP.reduce((s, sl) => s + (sl.montant || 0), 0);
+    const benefice = ca - achatsTotal - depenses - salaires;
+
+    // Trésorerie = entrées - sorties caisse
+    const tresorerie = data.caisse.reduce((s, c) => {
+      if (c.type === 'entree') return s + (c.montant || 0);
+      if (c.type === 'sortie') return s - (c.montant || 0);
+      return s;
+    }, 0);
+
+    // Valeur du stock produits finis
+    const valeurStock = data.produits.reduce((s, p) => s + ((+p.stock_qty || 0) * (+p.prix_unitaire || 0)), 0);
+
+    // Dépenses du mois courant
+    const now2 = new Date();
+    const depensesMois = data.depenses.filter(d => {
+      if (!d.date) return false;
+      const dd = new Date(d.date);
+      return dd.getMonth() === now2.getMonth() && dd.getFullYear() === now2.getFullYear();
+    }).reduce((s, d) => s + (d.montant || 0), 0);
+
+    const stockAlertes = data.produits.filter(p => (+p.stock_qty || 0) <= (+p.seuil_alerte || 5)).length;
+    const prodP = filterByPeriod(data.productions);
     const productionsNb = prodP.length;
     const coutProductions = prodP.reduce((s, p) => s + (p.cout_total || 0), 0);
 
-    // Monthly chart data (last 6 months)
     const months = Array.from({ length: 6 }, (_, i) => {
       const d = subMonths(new Date(), 5 - i);
       const m = d.getMonth(); const y = d.getFullYear();
@@ -86,12 +111,16 @@ export default function DashboardModule({ session, theme }) {
     }).sort((a, b) => b.totalAchete - a.totalAchete).slice(0, 5);
 
     const topProduits = data.produits.map(p => {
-      const qtyVendue = data.ventes.filter(v => v.produit_id === p.id).reduce((s, v) => s + v.quantite, 0);
-      const caP = data.ventes.filter(v => v.produit_id === p.id).reduce((s, v) => s + (v.total_prix || 0), 0);
+      const qtyVendue = data.ventes.filter(v => v.produit_id === p.id || v.product_id === p.id).reduce((s, v) => s + (+v.quantite || 0), 0);
+      const caP = data.ventes.filter(v => v.produit_id === p.id || v.product_id === p.id).reduce((s, v) => s + (v.total_prix || 0), 0);
       return { ...p, qtyVendue, caP };
     }).sort((a, b) => b.caP - a.caP).slice(0, 5);
 
-    return { ca, creances, achatsTotal, depenses, benefice, stockAlertes, productionsNb, coutProductions, months, topClients, topProduits };
+    return {
+      ca, creances, dettesF, achatsTotal, depenses, salaires, benefice,
+      tresorerie, valeurStock, depensesMois,
+      stockAlertes, productionsNb, coutProductions, months, topClients, topProduits
+    };
   }, [data, period]);
 
   const maxBar = Math.max(...stats.months.map(m => Math.max(m.ventes, m.achats)), 1);
@@ -101,12 +130,11 @@ export default function DashboardModule({ session, theme }) {
   return (
     <div className="animate-enter">
       {/* Period selector */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
         {[['week', '7 Jours'], ['month', 'Ce Mois'], ['year', 'Cette Année']].map(([k, l]) => (
           <button key={k} onClick={() => setPeriod(k)}
-            style={{ padding: '8px 18px', borderRadius: 12, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', fontFamily: 'Outfit, sans-serif',
-              background: period === k ? 'var(--primary)' : 'var(--card)', color: period === k ? 'white' : 'var(--muted)',
-              border: period === k ? 'none' : '1px solid var(--card-border)', transition: '0.2s' }}>
+            style={{ padding: '8px 18px', borderRadius: 12, border: period === k ? 'none' : '1px solid var(--card-border)', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', fontFamily: 'Outfit, sans-serif',
+              background: period === k ? 'var(--primary)' : 'var(--card)', color: period === k ? 'white' : 'var(--muted)', transition: '0.2s' }}>
             {l}
           </button>
         ))}
@@ -115,31 +143,48 @@ export default function DashboardModule({ session, theme }) {
         </button>
       </div>
 
-      {/* Main KPIs */}
+      {/* ── KPIs ROW 1 ── */}
       <div className="stats-grid">
         <div className="stat-card" style={{ borderLeft: '5px solid #10b981' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <div className="stat-value" style={{ color: '#10b981' }}>{stats.ca.toFixed(0)} DA</div>
               <div className="stat-label">Chiffre d'Affaires</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: 2 }}>Période sélectionnée</div>
             </div>
             <TrendingUp color="#10b981" size={28} />
           </div>
         </div>
-        <div className="stat-card" style={{ borderLeft: '5px solid #4f46e5' }}>
+        <div className="stat-card" style={{ borderLeft: `5px solid ${stats.benefice >= 0 ? '#4f46e5' : '#ef4444'}` }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div className="stat-value" style={{ color: '#4f46e5' }}>{stats.benefice.toFixed(0)} DA</div>
+              <div className="stat-value" style={{ color: stats.benefice >= 0 ? '#4f46e5' : '#ef4444' }}>{stats.benefice.toFixed(0)} DA</div>
               <div className="stat-label">Bénéfice Net</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: 2 }}>CA − Achats − Dépenses − Salaires</div>
             </div>
-            <DollarSign color="#4f46e5" size={28} />
+            <DollarSign color={stats.benefice >= 0 ? '#4f46e5' : '#ef4444'} size={28} />
           </div>
         </div>
+        <div className="stat-card" style={{ borderLeft: `5px solid ${stats.tresorerie >= 0 ? '#0ea5e9' : '#ef4444'}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div className="stat-value" style={{ color: stats.tresorerie >= 0 ? '#0ea5e9' : '#ef4444' }}>{stats.tresorerie.toFixed(0)} DA</div>
+              <div className="stat-label">Trésorerie</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: 2 }}>Solde caisse actuel</div>
+            </div>
+            <Wallet color="#0ea5e9" size={28} />
+          </div>
+        </div>
+      </div>
+
+      {/* ── KPIs ROW 2 ── */}
+      <div className="stats-grid" style={{ marginTop: 0 }}>
         <div className="stat-card" style={{ borderLeft: '5px solid #ef4444' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <div className="stat-value" style={{ color: '#ef4444' }}>{stats.creances.toFixed(0)} DA</div>
               <div className="stat-label">Créances Clients</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: 2 }}>Factures non encore payées</div>
             </div>
             <AlertTriangle color="#ef4444" size={28} />
           </div>
@@ -147,10 +192,31 @@ export default function DashboardModule({ session, theme }) {
         <div className="stat-card" style={{ borderLeft: '5px solid #f59e0b' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div className="stat-value" style={{ color: '#f59e0b' }}>{stats.achatsTotal.toFixed(0)} DA</div>
-              <div className="stat-label">Total Achats</div>
+              <div className="stat-value" style={{ color: '#f59e0b' }}>{stats.dettesF.toFixed(0)} DA</div>
+              <div className="stat-label">Dettes Fournisseurs</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: 2 }}>Achats non encore réglés</div>
             </div>
-            <ShoppingBag color="#f59e0b" size={28} />
+            <Truck color="#f59e0b" size={28} />
+          </div>
+        </div>
+        <div className="stat-card" style={{ borderLeft: '5px solid #8b5cf6' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div className="stat-value" style={{ color: '#8b5cf6' }}>{stats.valeurStock.toFixed(0)} DA</div>
+              <div className="stat-label">Valeur du Stock</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: 2 }}>Produits finis × prix unitaire</div>
+            </div>
+            <Archive color="#8b5cf6" size={28} />
+          </div>
+        </div>
+        <div className="stat-card" style={{ borderLeft: '5px solid #ec4899' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div className="stat-value" style={{ color: '#ec4899' }}>{stats.depensesMois.toFixed(0)} DA</div>
+              <div className="stat-label">Dépenses du Mois</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: 2 }}>{format(new Date(), 'MMMM yyyy')}</div>
+            </div>
+            <Receipt color="#ec4899" size={28} />
           </div>
         </div>
         <div className="stat-card" style={{ borderLeft: '5px solid #8b5cf6' }}>
@@ -167,15 +233,31 @@ export default function DashboardModule({ session, theme }) {
             <div>
               <div className="stat-value" style={{ color: stats.stockAlertes > 0 ? '#ef4444' : '#10b981' }}>{stats.stockAlertes}</div>
               <div className="stat-label">Alertes Stock</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: 2 }}>Produits sous le seuil min</div>
             </div>
             <Package color={stats.stockAlertes > 0 ? '#ef4444' : '#10b981'} size={28} />
           </div>
         </div>
       </div>
 
-      {/* Charts + Top lists */}
+      {/* ── Alertes stock critiques ── */}
+      {stats.stockAlertes > 0 && (
+        <div style={{ marginBottom: 20, background: '#fee2e2', border: '1.5px solid #fecaca', borderRadius: 16, padding: '14px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, color: '#b91c1c', marginBottom: 8 }}>
+            <AlertTriangle size={18} /> ⚠️ {stats.stockAlertes} Produit(s) en Alerte de Stock !
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {data.produits.filter(p => (+p.stock_qty || 0) <= (+p.seuil_alerte || 5)).map(p => (
+              <span key={p.id} style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 20, padding: '4px 12px', fontSize: '0.8rem', fontWeight: 700, color: '#991b1b' }}>
+                {p.nom}: {p.stock_qty} {p.unite || 'u'} (min: {p.seuil_alerte || 5})
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Charts + Top lists ── */}
       <div className="dashboard-two-cols" style={{ marginBottom: 20 }}>
-        {/* Monthly bar chart */}
         <div className="glass-container" style={{ margin: 0 }}>
           <h3 style={{ fontWeight: 800, marginBottom: 20, fontSize: '1.1rem' }}>📊 Évolution 6 Mois</h3>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 160 }}>
@@ -195,7 +277,6 @@ export default function DashboardModule({ session, theme }) {
           </div>
         </div>
 
-        {/* Top clients */}
         <div className="glass-container" style={{ margin: 0 }}>
           <h3 style={{ fontWeight: 800, marginBottom: 16, fontSize: '1.1rem' }}>🏆 Top Clients</h3>
           {stats.topClients.length === 0 ? (
@@ -217,8 +298,7 @@ export default function DashboardModule({ session, theme }) {
         </div>
       </div>
 
-      {/* Top products + Recent activity */}
-      <div className="dashboard-two-cols">
+      <div className="dashboard-two-cols" style={{ marginBottom: 20 }}>
         <div className="glass-container" style={{ margin: 0 }}>
           <h3 style={{ fontWeight: 800, marginBottom: 16, fontSize: '1.1rem' }}>📦 Top Produits</h3>
           {stats.topProduits.length === 0 ? (
@@ -230,7 +310,7 @@ export default function DashboardModule({ session, theme }) {
                   <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.8rem', flexShrink: 0 }}>{i + 1}</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{p.nom}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Vendu: {p.qtyVendue} {p.unite}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Vendu: {p.qtyVendue} {p.unite} | Stock: {p.stock_qty}</div>
                   </div>
                   <div style={{ fontWeight: 800, color: '#4f46e5', fontSize: '0.9rem' }}>{p.caP.toFixed(0)} DA</div>
                 </div>
@@ -239,7 +319,6 @@ export default function DashboardModule({ session, theme }) {
           )}
         </div>
 
-        {/* Recent transactions */}
         <div className="glass-container" style={{ margin: 0 }}>
           <h3 style={{ fontWeight: 800, marginBottom: 16, fontSize: '1.1rem' }}>⚡ Dernières Ventes</h3>
           {data.ventes.length === 0 ? (
@@ -252,14 +331,35 @@ export default function DashboardModule({ session, theme }) {
                     <TrendingUp size={16} color={v.est_paye ? '#15803d' : '#b91c1c'} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.produit_nom}</div>
+                    <div style={{ fontWeight: 700, fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.produit_nom || v.nom}</div>
                     <div style={{ fontSize: '0.73rem', color: 'var(--muted)' }}>{v.client_nom || 'Client inconnu'} • {v.date}</div>
                   </div>
-                  <div style={{ fontWeight: 800, color: '#4f46e5', fontSize: '0.9rem', flexShrink: 0 }}>{(v.total_prix || 0).toFixed(0)} DA</div>
+                  <div style={{ fontWeight: 800, color: v.est_paye ? '#10b981' : '#ef4444', fontSize: '0.9rem', flexShrink: 0 }}>{(v.total_prix || 0).toFixed(0)} DA</div>
                 </div>
               ))}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ── Résumé Financier ── */}
+      <div className="glass-container">
+        <h3 style={{ fontWeight: 800, marginBottom: 16, fontSize: '1.1rem' }}>
+          💼 Résumé Financier — {period === 'week' ? '7 Derniers Jours' : period === 'month' ? 'Ce Mois' : 'Cette Année'}
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+          {[
+            { label: "Chiffre d'Affaires", value: stats.ca, color: '#10b981' },
+            { label: "Total Achats", value: stats.achatsTotal, color: '#ef4444' },
+            { label: "Dépenses", value: stats.depenses, color: '#f59e0b' },
+            { label: "Salaires", value: stats.salaires, color: '#8b5cf6' },
+            { label: "Bénéfice Net", value: stats.benefice, color: stats.benefice >= 0 ? '#4f46e5' : '#ef4444' },
+          ].map((item, i) => (
+            <div key={i} style={{ background: `${item.color}12`, borderRadius: 12, padding: '12px 14px', borderLeft: `4px solid ${item.color}` }}>
+              <div style={{ fontSize: '0.73rem', color: 'var(--muted)', fontWeight: 700, marginBottom: 4 }}>{item.label}</div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 900, color: item.color }}>{Math.abs(item.value).toFixed(0)} DA</div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
