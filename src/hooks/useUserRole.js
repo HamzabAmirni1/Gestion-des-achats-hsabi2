@@ -1,95 +1,122 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '../supabaseClient';
+import { useState, useEffect, useCallback } from 'react';
+import { supabase, safeUpsertProfile } from '../supabaseClient';
 
 /**
- * useUserRole — determines if the current user is 'admin' (Directeur) or 'worker' (Employé).
+ * useUserRole — determines user role, active status, and full profile data.
  * 
- * Order of priority:
- * 1. Database table `profiles` (role column)
- * 2. Auth user_metadata (role set during registration)
- * 3. Default: 'worker' (only first user without any role metadata becomes admin)
+ * Returns: {
+ *   role: 'admin' | 'worker' | null,
+ *   isActive: boolean,
+ *   profile: object | null,
+ *   loading: boolean,
+ *   refreshRole: () => Promise<void>
+ * }
  */
 export function useUserRole(session) {
-  const [role, setRole]       = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [role, setRole]         = useState(null);
+  const [isActive, setIsActive] = useState(true);
+  const [profile, setProfile]   = useState(null);
+  const [loading, setLoading]   = useState(true);
 
-  useEffect(() => {
+  const fetchRole = useCallback(async () => {
     if (!session?.user?.id) { 
       setRole(null); 
+      setIsActive(true);
+      setProfile(null);
       setLoading(false); 
       return; 
     }
 
-    const fetchRole = async () => {
-      setLoading(true);
-      try {
-        const user = session.user;
-        const metaRole = user.user_metadata?.role; // 'admin' ou 'worker'
+    setLoading(true);
+    try {
+      const user = session.user;
+      const meta = user.user_metadata || {};
+      const metaRole = meta.role; // 'admin' ou 'worker'
 
-        // 1. Chercher dans la table profiles
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role, full_name, is_active')
-          .eq('id', user.id)
-          .maybeSingle();
+      // 1. Chercher dans la table profiles
+      const { data: dbProfile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
 
-        if (profile?.role) {
-          // Si le profil a un rôle en base, on l'utilise
-          setRole(profile.role);
-          return;
-        }
-
-        // 2. Si pas de profil, utiliser le rôle choisi à l'inscription (user_metadata)
-        if (metaRole === 'worker' || metaRole === 'admin') {
-          setRole(metaRole);
-          // Tenter de créer le profil en base
-          supabase.from('profiles').upsert({
-            id: user.id,
-            role: metaRole,
-            full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Utilisateur',
-            email: user.email,
-            is_active: metaRole === 'admin',
-          }).then(() => {});
-          return;
-        }
-
-        // 3. Fallback : si aucun rôle n'a jamais été spécifié
-        const { count: adminCount } = await supabase
-          .from('profiles')
-          .select('id', { count: 'exact', head: true })
-          .eq('role', 'admin');
-
-        const assignedRole = (!adminCount || adminCount === 0) ? 'admin' : 'worker';
-        setRole(assignedRole);
-
-        supabase.from('profiles').upsert({
-          id: user.id,
-          role: assignedRole,
-          full_name: user.email?.split('@')[0] || 'Utilisateur',
-          email: user.email,
-          is_active: assignedRole === 'admin',
-        }).then(() => {});
-
-      } catch (err) {
-        console.warn('Error determining role:', err);
-        // Sécurité : si l'utilisateur avait demandé 'worker', respecter son choix
-        const fallbackRole = session.user?.user_metadata?.role || 'worker';
-        setRole(fallbackRole);
-      } finally {
-        setLoading(false);
+      if (dbProfile) {
+        setProfile(dbProfile);
+        setRole(dbProfile.role || metaRole || 'worker');
+        setIsActive(dbProfile.is_active !== false);
+        return;
       }
-    };
 
-    fetchRole();
+      // 2. Si pas de profil en base, vérifier user_metadata
+      if (metaRole === 'worker' || metaRole === 'admin') {
+        setRole(metaRole);
+        // Les employés créés sont en attente (is_active: false), les directeurs sont actifs (true)
+        const initialActive = metaRole === 'admin';
+        setIsActive(initialActive);
+
+        const newProf = {
+          id: user.id,
+          role: metaRole,
+          full_name: meta.full_name || user.email?.split('@')[0] || 'Utilisateur',
+          email: user.email,
+          tel: meta.tel || '',
+          adresse: meta.adresse || '',
+          date_naissance: meta.date_naissance || '',
+          director_id: meta.director_id || null,
+          director_name: meta.director_name || '',
+          is_active: initialActive,
+        };
+        setProfile(newProf);
+
+        // Sauvegarder en arrière-plan avec fallback sécurisé
+        safeUpsertProfile(newProf).then(() => {});
+        return;
+      }
+
+      // 3. Fallback : si aucun rôle n'a jamais été spécifié (ex: premier admin)
+      const { count: adminCount } = await supabase
+        .from('profiles')
+        .select('id', { count: 'exact', head: true })
+        .eq('role', 'admin');
+
+      const assignedRole = (!adminCount || adminCount === 0) ? 'admin' : 'worker';
+      const assignedActive = assignedRole === 'admin';
+
+      setRole(assignedRole);
+      setIsActive(assignedActive);
+
+      const fallbackProf = {
+        id: user.id,
+        role: assignedRole,
+        full_name: user.email?.split('@')[0] || 'Utilisateur',
+        email: user.email,
+        is_active: assignedActive,
+      };
+      setProfile(fallbackProf);
+
+      safeUpsertProfile(fallbackProf).then(() => {});
+
+    } catch (err) {
+      console.warn('Error determining role:', err);
+      const fallbackRole = session.user?.user_metadata?.role || 'worker';
+      setRole(fallbackRole);
+      setIsActive(fallbackRole === 'admin');
+    } finally {
+      setLoading(false);
+    }
   }, [session?.user?.id]);
 
-  return { role, loading };
+  useEffect(() => {
+    fetchRole();
+  }, [fetchRole]);
+
+  return { role, isActive, profile, loading, refreshRole: fetchRole };
 }
 
 /** Helper: true if the user is an admin */
 export const isAdmin = (role) => role === 'admin';
 
-/** Tabs visible to workers (strictly operational: no financial reports, caisse, dev, users) */
+/** Tabs visible to workers */
 export const WORKER_TABS = new Set([
   'dashboard', 'clients', 'produits', 'stock', 'production', 'ventes', 'achats', 'chat',
 ]);
