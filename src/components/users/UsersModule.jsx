@@ -423,35 +423,6 @@ export default function UsersModule({ session }) {
           </div>
         )}
       </div>
-
-      {/* ── SQL Helper Card ── */}
-      <div style={{
-        marginTop: 20, padding: '16px 20px',
-        background: 'linear-gradient(135deg,#1e1b4b,#312e81)',
-        borderRadius: 18, color: 'white',
-      }}>
-        <div style={{ fontWeight: 800, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-          💡 Comment créer la table <code style={{ background: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: 6 }}>profiles</code> dans Supabase ?
-        </div>
-        <p style={{ fontSize: '0.8rem', opacity: 0.85, margin: '0 0 10px' }}>
-          Exécutez ce SQL dans l'éditeur SQL de Supabase (Table Editor → SQL Editor) :
-        </p>
-        <pre style={{
-          background: 'rgba(0,0,0,0.4)', borderRadius: 10,
-          padding: '12px 16px', fontSize: '0.75rem', overflowX: 'auto',
-          color: '#a5f3fc', margin: 0,
-        }}>{`create table if not exists profiles (
-  id        uuid primary key references auth.users(id) on delete cascade,
-  role      text not null default 'worker' check (role in ('admin','worker')),
-  full_name text,
-  email     text,
-  is_active boolean not null default true,
-  created_at timestamptz default now()
-);
-
--- Pour définir le 1er admin (remplacez l'UUID par le vôtre) :
--- update profiles set role = 'admin' where id = 'VOTRE-UUID-ICI';`}</pre>
-      </div>
     </div>
   );
 }
