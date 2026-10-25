@@ -174,6 +174,8 @@ export default function UsersModule({ session }) {
     );
   });
 
+  const pendingWorkers = profiles.filter(p => p.role === 'worker' && p.is_active === false);
+
   return (
     <div className="animate-enter">
       {/* ── Header ── */}
@@ -181,10 +183,10 @@ export default function UsersModule({ session }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h2 style={{ margin: 0, fontWeight: 900, fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: 10 }}>
-              🔐 Gestion des Utilisateurs
+              🔐 Gestion des Utilisateurs & Équipe
             </h2>
             <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '0.85rem' }}>
-              Activez, désactivez ou supprimez les comptes des employés.
+              Validez les demandes d'accès des employés, activez ou désactivez leurs permissions.
             </p>
           </div>
           <button
@@ -202,7 +204,7 @@ export default function UsersModule({ session }) {
             { label: 'Total', value: profiles.length, color: '#4f46e5', icon: '👥' },
             { label: 'Directeurs', value: profiles.filter(p => p.role === 'admin').length, color: '#7c3aed', icon: '🛡️' },
             { label: 'Employés', value: profiles.filter(p => p.role === 'worker').length, color: '#0ea5e9', icon: '👷' },
-            { label: 'Désactivés', value: profiles.filter(p => !p.is_active).length, color: '#ef4444', icon: '🚫' },
+            { label: 'En attente', value: pendingWorkers.length, color: '#f59e0b', icon: '⏳' },
           ].map(s => (
             <div key={s.label} style={{ padding: '12px 16px', background: `${s.color}12`, borderRadius: 14, borderLeft: `4px solid ${s.color}`, textAlign: 'center' }}>
               <div style={{ fontSize: '1.4rem' }}>{s.icon}</div>
@@ -212,6 +214,32 @@ export default function UsersModule({ session }) {
           ))}
         </div>
       </div>
+
+      {/* ── Bannière Alertes Demandes en Attente ── */}
+      {pendingWorkers.length > 0 && (
+        <div style={{
+          background: 'linear-gradient(135deg, #fef3c7, #fffbeb)',
+          border: '1.5px solid #f59e0b',
+          borderRadius: 16,
+          padding: '14px 18px',
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          color: '#92400e',
+          boxShadow: '0 4px 16px rgba(245, 158, 11, 0.15)'
+        }}>
+          <span style={{ fontSize: '1.6rem' }}>🔔</span>
+          <div style={{ flex: 1 }}>
+            <strong style={{ fontSize: '0.95rem', display: 'block' }}>
+              {pendingWorkers.length} employé(s) ont demandé à rejoindre votre usine !
+            </strong>
+            <span style={{ fontSize: '0.8rem', opacity: 0.9 }}>
+              Cliquez sur le bouton vert <strong>"Activer"</strong> pour valider leur compte et leur donner accès.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ── Recherche ── */}
       <div style={{ position: 'relative', marginBottom: 16 }}>
