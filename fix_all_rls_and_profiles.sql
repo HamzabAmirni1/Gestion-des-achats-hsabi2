@@ -19,6 +19,7 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS adresse text;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS date_naissance text;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS director_id text;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS director_name text;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url text;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT false;
 
 -- 2. Désactiver le RLS pour partager les données de l'usine entre Directeur et Employés
