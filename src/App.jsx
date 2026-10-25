@@ -161,6 +161,20 @@ export default function App() {
   const { role: userRole, isActive, profile: userProfile, loading: roleLoading, refreshRole } = useUserRole(session);
   const [activeTab, setActiveTab]   = useState(() => localStorage.getItem('brasti-tab') || 'dashboard');
 
+  /* ── Sécurité & Réinitialisation onglet pour l'employé ── */
+  useEffect(() => {
+    if (userRole === 'worker' && ADMIN_ONLY_TABS.has(activeTab)) {
+      setActiveTab('dashboard');
+      localStorage.setItem('brasti-tab', 'dashboard');
+    }
+  }, [userRole, activeTab]);
+
+  const handleSignOut = async () => {
+    localStorage.removeItem('brasti-tab');
+    setActiveTab('dashboard');
+    await supabase.auth.signOut();
+  };
+
   /* ── Complétion profil Google pour Employé ── */
   const [googleModalOpen, setGoogleModalOpen] = useState(false);
   const [googleTel, setGoogleTel]             = useState('');
@@ -262,7 +276,7 @@ export default function App() {
         .eq('id', session.user.id)
         .single();
       if (data && data.is_active === false) {
-        await supabase.auth.signOut();
+        await handleSignOut();
         Swal.fire({
           icon: 'error',
           title: 'Compte désactivé',
@@ -832,7 +846,7 @@ export default function App() {
       const productsInfo = products.map(p => `${p.nom} (stock: ${p.stock_qty}, coût: ${p.prix_unitaire} DA)`).join(', ');
 
       const ctx = `Tu es l'assistant commercial et financier intelligent de BRASTI (application de gestion de production, stocks et ventes).
-DONNÉES EN TEMPS RÉEL :
+DONNÉES EN TEMPS RÉEL DE L'ENTREPRISE :
 - Chiffre d'affaires total : ${totalVentes.toFixed(0)} DA
 - Total des coûts/achats : ${totalAchats.toFixed(0)} DA
 - Bénéfice net actuel : ${benefice.toFixed(0)} DA
@@ -843,11 +857,12 @@ DONNÉES EN TEMPS RÉEL :
 - Top ventes :
 ${topProductsList || 'aucune vente'}
 
-CONSIGNES STRICTES :
-1. Réponds EXCLUSIVEMENT en français clair, élégant et professionnel.
-2. N'utilise JAMAIS de darija ni de termes en arabe.
-3. Sois précis, donne les chiffres réels ci-dessus.
-4. Structure ta réponse avec des puces.`;
+RÈGLE D'OR DE LA LANGUE (TRÈS IMPORTANT) :
+1. DÉTECTE LA LANGUE DE L'UTILISATEUR ET RÉPONDS DANS LA MÊME LANGUE :
+   - Si la question est en ARABE ou en DARIJA مغربية (ex: "شحال بعنا", "شحال الربح", "chhal tba3", "kayn stok", "salam") -> Réponds OBLIGATOIREMENT EN ARABE clair, professionnel et chaleureux (عربية واضحة وبسيطة مع أرقام دقيقة وإيموجي).
+   - Si la question est en FRANÇAIS -> Réponds en français clair, élégant et professionnel.
+2. Sois précis et cite les chiffres réels ci-dessus.
+3. Structure toujours ta réponse avec des puces claires et des émojis.`;
 
       // Prepare conversation history
       const history = messages.slice(-4).map(m => ({
@@ -858,64 +873,104 @@ CONSIGNES STRICTES :
       // Call Google Gemini Web / AI service
       let botContent = await getGeminiReply(content, ctx, history);
 
-      // Fallback intelligent en Français
+      // Fallback intelligent Multilingue (Arabe / Français)
       if (!botContent) {
         const q = content.toLowerCase();
+        const isAr = /[\u0600-\u06FF]/.test(content) || /chhal|mntoj|dyal|kayn|kain|shhal|flous|rbh|bi3|chra|sl3a|bghit|salam|labas|drari|koul/i.test(content);
 
-        // Quantité de produits vendus ("chhal mn mntoj tba3", "combien de produits vendus", etc.)
-        if (q.includes('produit') || q.includes('mntoj') || q.includes('article') || q.includes('combien') || q.includes('quantite') || q.includes('chhal') || q.includes('nb')) {
-          botContent = `📊 **Statistiques des articles vendus :**\n\n` +
-            `• **Total d'articles vendus :** **${totalArticlesVendus} unités** au total\n` +
-            `• **Nombre d'opérations de vente :** **${nbVentes} vente(s)**\n` +
-            `• **Chiffre d'affaires réalisé :** **${totalVentes.toFixed(0)} DA**\n\n` +
-            (topProductsList ? `🏆 **Détail par produit :**\n${topProductsList}` : `Aucune vente enregistrée pour le moment.`);
+        // Quantité de produits vendus
+        if (q.includes('produit') || q.includes('mntoj') || q.includes('article') || q.includes('combien') || q.includes('quantite') || q.includes('chhal') || q.includes('nb') || q.includes('منتوج') || q.includes('سلعة') || q.includes('شحال') || q.includes('قطع') || q.includes('كمية')) {
+          botContent = isAr
+            ? `📊 **إحصائيات المنتجات والمبيعات :**\n\n` +
+              `• **مجموع القطع المباعة :** **${totalArticlesVendus} قطعة**\n` +
+              `• **عدد عمليات البيع :** **${nbVentes} عملية بيع**\n` +
+              `• **مجموع المداخيل المحققة :** **${totalVentes.toFixed(0)} دج**\n\n` +
+              (topProductsList ? `🏆 **تفاصيل المنتجات :**\n${topProductsList}` : `لا توجد مبيعات مسجلة حتى الآن.`)
+            : `📊 **Statistiques des articles vendus :**\n\n` +
+              `• **Total d'articles vendus :** **${totalArticlesVendus} unités** au total\n` +
+              `• **Nombre d'opérations de vente :** **${nbVentes} vente(s)**\n` +
+              `• **Chiffre d'affaires réalisé :** **${totalVentes.toFixed(0)} DA**\n\n` +
+              (topProductsList ? `🏆 **Détail par produit :**\n${topProductsList}` : `Aucune vente enregistrée pour le moment.`);
         }
         // Bénéfice / Profit / Marge
-        else if (q.includes('rbh') || q.includes('profit') || q.includes('bénéfice') || q.includes('benefice') || q.includes('marge') || q.includes('gain')) {
-          botContent = `💰 **Bénéfice Net Actuel :**\n\n` +
-            `• **Bénéfice net :** **${benefice.toFixed(0)} DA**\n` +
-            `• **Chiffre d'affaires :** ${totalVentes.toFixed(0)} DA\n` +
-            `• **Total achats et dépenses :** ${totalAchats.toFixed(0)} DA\n\n` +
-            (benefice >= 0 ? `✅ Votre activité est rentable avec un résultat positif.` : `⚠️ Vos dépenses dépassent actuellement vos recettes.`);
+        else if (q.includes('rbh') || q.includes('profit') || q.includes('bénéfice') || q.includes('benefice') || q.includes('marge') || q.includes('gain') || q.includes('ربح') || q.includes('فائدة') || q.includes('ارباح') || q.includes('أرباح')) {
+          botContent = isAr
+            ? `💰 **صافي الأرباح الحالي :**\n\n` +
+              `• **الأرباح الصافية :** **${benefice.toFixed(0)} دج**\n` +
+              `• **مجموع المبيعات :** ${totalVentes.toFixed(0)} دج\n` +
+              `• **مجموع المصاريف والمشتريات :** ${totalAchats.toFixed(0)} دج\n\n` +
+              (benefice >= 0 ? `✅ نشاطك التجاري في وضع ممتاز ومربح.` : `⚠️ المصاريف تفوق المداخيل حالياً.`)
+            : `💰 **Bénéfice Net Actuel :**\n\n` +
+              `• **Bénéfice net :** **${benefice.toFixed(0)} DA**\n` +
+              `• **Chiffre d'affaires :** ${totalVentes.toFixed(0)} DA\n` +
+              `• **Total achats et dépenses :** ${totalAchats.toFixed(0)} DA\n\n` +
+              (benefice >= 0 ? `✅ Votre activité est rentable avec un résultat positif.` : `⚠️ Vos dépenses dépassent actuellement vos recettes.`);
         }
         // Ventes
-        else if (q.includes('bi3') || q.includes('vente') || q.includes('chiffre') || q.includes('ca')) {
-          botContent = `📈 **Rapport du Chiffre d'Affaires :**\n\n` +
-            `• **Chiffre d'affaires :** **${totalVentes.toFixed(0)} DA**\n` +
-            `• **Nombre de ventes :** ${nbVentes}\n` +
-            `• **Volume total vendu :** ${totalArticlesVendus} unités`;
+        else if (q.includes('bi3') || q.includes('vente') || q.includes('chiffre') || q.includes('ca') || q.includes('بيع') || q.includes('مبيعات') || q.includes('شحال بعنا')) {
+          botContent = isAr
+            ? `📈 **تقرير المبيعات ورقم المعاملات :**\n\n` +
+              `• **رقم المعاملات الإجمالي :** **${totalVentes.toFixed(0)} دج**\n` +
+              `• **عدد عمليات البيع :** ${nbVentes} عملية\n` +
+              `• **إجمالي الوحدات المباعة :** ${totalArticlesVendus} قطعة`
+            : `📈 **Rapport du Chiffre d'Affaires :**\n\n` +
+              `• **Chiffre d'affaires :** **${totalVentes.toFixed(0)} DA**\n` +
+              `• **Nombre de ventes :** ${nbVentes}\n` +
+              `• **Volume total vendu :** ${totalArticlesVendus} unités`;
         }
         // Dettes / Crédits
-        else if (q.includes('dyn') || q.includes('dette') || q.includes('credit') || q.includes('créance') || q.includes('payer') || q.includes('reglement')) {
-          botContent = `⚠️ **Créances & Dettes Clients :**\n\n` +
-            `• **Total des impayés clients :** **${totalDettes.toFixed(0)} DA**\n\n` +
-            (totalDettes > 0 ? `Consultez l'onglet **Clients** ou **Règlements** pour effectuer les relances.` : `✨ Parfait ! Aucun impayé en attente.`);
+        else if (q.includes('dyn') || q.includes('dette') || q.includes('credit') || q.includes('créance') || q.includes('payer') || q.includes('reglement') || q.includes('دين') || q.includes('كريدي') || q.includes('ديون') || q.includes('فلوس برا')) {
+          botContent = isAr
+            ? `⚠️ **ديون ومستحقات الزبائن :**\n\n` +
+              `• **مجموع الديون غير المسددة :** **${totalDettes.toFixed(0)} دج**\n\n` +
+              (totalDettes > 0 ? `يمكنك التوجه لقسم **الزبائن** أو **المدفوعات** لمتابعة التحصيل.` : `✨ ممتاز ! لا توجد أي ديون معلقة.`)
+            : `⚠️ **Créances & Dettes Clients :**\n\n` +
+              `• **Total des impayés clients :** **${totalDettes.toFixed(0)} DA**\n\n` +
+              (totalDettes > 0 ? `Consultez l'onglet **Clients** ou **Règlements** pour effectuer les relances.` : `✨ Parfait ! Aucun impayé en attente.`);
         }
         // Stock
-        else if (q.includes('stok') || q.includes('stock') || q.includes('inventaire') || q.includes('quantité')) {
+        else if (q.includes('stok') || q.includes('stock') || q.includes('inventaire') || q.includes('quantité') || q.includes('ستوك') || q.includes('سلعة') || q.includes('مخزون')) {
           const alertes = products.filter(p => p.stock_qty <= 5);
-          botContent = `📦 **État de l'Inventaire :**\n\n` +
-            (products.length > 0 ? products.map(p => `• **${p.nom}** : ${p.stock_qty} unité(s) (${p.stock_qty <= 5 ? '⚠️ Stock faible' : '✅ En stock'})`).join('\n') : `Aucun produit dans l'inventaire.`) +
-            (alertes.length > 0 ? `\n\n⚠️ **${alertes.length} produit(s)** nécessitent un réapprovisionnement rapide.` : '');
+          botContent = isAr
+            ? `📦 **حالة المخزون (Stock) :**\n\n` +
+              (products.length > 0 ? products.map(p => `• **${p.nom}** : ${p.stock_qty} قطعة (${p.stock_qty <= 5 ? '⚠️ قرب يسالي' : '✅ متوفر'})`).join('\n') : `المخزون فارغ حالياً.`) +
+              (alertes.length > 0 ? `\n\n⚠️ **${alertes.length} منتوج(ات)** بحاجة لإعادة الشحن قريباً.` : '')
+            : `📦 **État de l'Inventaire :**\n\n` +
+              (products.length > 0 ? products.map(p => `• **${p.nom}** : ${p.stock_qty} unité(s) (${p.stock_qty <= 5 ? '⚠️ Stock faible' : '✅ En stock'})`).join('\n') : `Aucun produit dans l'inventaire.`) +
+              (alertes.length > 0 ? `\n\n⚠️ **${alertes.length} produit(s)** nécessitent un réapprovisionnement rapide.` : '');
         }
         // Salutations
-        else if (q.includes('bonjour') || q.includes('salut') || q.includes('hello') || q.includes('hi') || q.includes('coucou') || q.includes('aide')) {
-          botContent = `👋 **Bonjour !** Je suis l'assistant intelligent de votre plateforme BRASTI.\n\n` +
-            `Je peux analyser vos données financières en direct :\n` +
-            `• Ventes et total d'articles vendus\n` +
-            `• Bénéfice net et chiffre d'affaires\n` +
-            `• Alertes stock et inventaire\n` +
-            `• Suivi des dettes et règlements clients\n\n` +
-            `Que souhaitez-vous vérifier aujourd'hui ?`;
+        else if (q.includes('bonjour') || q.includes('salut') || q.includes('hello') || q.includes('hi') || q.includes('coucou') || q.includes('aide') || q.includes('سلام') || q.includes('مرحبا') || q.includes('أهلا') || q.includes('صباح') || q.includes('مساء')) {
+          botContent = isAr
+            ? `👋 **مرحباً بك !** أنا المساعد الذكي لنظام BRASTI لإدارة الإنتاج والمبيعات.\n\n` +
+              `أنا هنا لمساعدتك في تتبع مشروعك فورياً :\n` +
+              `• تفاصيل المبيعات والأرباح الحالية\n` +
+              `• حالة المخزون وتنبيهات النواقص\n` +
+              `• ديون الزبائن والمصاريف\n\n` +
+              `شنو تحب تفحص أو تعرف دابا ؟`
+            : `👋 **Bonjour !** Je suis l'assistant intelligent de votre plateforme BRASTI.\n\n` +
+              `Je peux analyser vos données financières en direct :\n` +
+              `• Ventes et total d'articles vendus\n` +
+              `• Bénéfice net et chiffre d'affaires\n` +
+              `• Alertes stock et inventaire\n` +
+              `• Suivi des dettes et règlements clients\n\n` +
+              `Que souhaitez-vous vérifier aujourd'hui ?`;
         }
         // Vue d'ensemble
         else {
-          botContent = `🤖 **Synthèse de votre activité :**\n\n` +
-            `• **Chiffre d'affaires :** **${totalVentes.toFixed(0)} DA** (${nbVentes} ventes)\n` +
-            `• **Articles vendus :** **${totalArticlesVendus} unités**\n` +
-            `• **Bénéfice net :** **${benefice.toFixed(0)} DA**\n` +
-            `• **Dettes clients :** **${totalDettes.toFixed(0)} DA**\n\n` +
-            `Posez-moi une question précise (ex: *"Combien de produits vendus ?"*, *"Quel est le bénéfice ?"*, *"État du stock"*).`;
+          botContent = isAr
+            ? `🤖 **ملخص نشاط شركتك الحالي :**\n\n` +
+              `• **المبيعات الإجمالية :** **${totalVentes.toFixed(0)} دج** (${nbVentes} عملية)\n` +
+              `• **القطع المباعة :** **${totalArticlesVendus} قطعة**\n` +
+              `• **صافي الربح :** **${benefice.toFixed(0)} دج**\n` +
+              `• **ديون الزبائن :** **${totalDettes.toFixed(0)} دج**\n\n` +
+              `تقدر تسولني على أي تفصيل (مثال: *"شحال بعنا من قطعة؟"*, *"شحال الربح؟"*, *"حالة الستوك"*).`
+            : `🤖 **Synthèse de votre activité :**\n\n` +
+              `• **Chiffre d'affaires :** **${totalVentes.toFixed(0)} DA** (${nbVentes} ventes)\n` +
+              `• **Articles vendus :** **${totalArticlesVendus} unités**\n` +
+              `• **Bénéfice net :** **${benefice.toFixed(0)} DA**\n` +
+              `• **Dettes clients :** **${totalDettes.toFixed(0)} DA**\n\n` +
+              `Posez-moi une question précise (ex: *"Combien de produits vendus ?"*, *"Quel est le bénéfice ?"*, *"État du stock"*).`;
         }
       }
 
@@ -1023,8 +1078,8 @@ CONSIGNES STRICTES :
           {/* ── Coordonnées requises pour l'Employé ── */}
           {authMode === 'reg' && authRole === 'worker' && (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div className="auth-group" style={{ marginBottom: 12 }}>
+              <div className="auth-row-2">
+                <div className="auth-group">
                   <label>Téléphone *</label>
                   <div className="auth-input-wrapper">
                     <Phone size={16} />
@@ -1038,7 +1093,7 @@ CONSIGNES STRICTES :
                   </div>
                 </div>
 
-                <div className="auth-group" style={{ marginBottom: 12 }}>
+                <div className="auth-group">
                   <label>Date de Naissance *</label>
                   <div className="auth-input-wrapper">
                     <Calendar size={16} />
@@ -1138,7 +1193,7 @@ CONSIGNES STRICTES :
           )}
 
           {authMode === 'reg' ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div className="auth-row-2">
               <div className="auth-group">
                 <label>Email *</label>
                 <div className="auth-input-wrapper">
@@ -1306,7 +1361,7 @@ CONSIGNES STRICTES :
           <button
             type="button"
             className="auth-mode-switch"
-            onClick={() => supabase.auth.signOut()}
+            onClick={handleSignOut}
           >
             Annuler & Se déconnecter
           </button>
@@ -1365,7 +1420,7 @@ CONSIGNES STRICTES :
           <button
             className="btn-secondary"
             style={{ padding: '12px' }}
-            onClick={() => supabase.auth.signOut()}
+            onClick={handleSignOut}
           >
             🚪 Se déconnecter
           </button>
@@ -1429,7 +1484,7 @@ CONSIGNES STRICTES :
             <button className="icon-btn" style={{ background: 'var(--primary)', color: 'white', border: 'none' }} onClick={generateFullReport} title="Télécharger Rapport PDF"><Download size={18} /></button>
           )}
           <button className="icon-btn" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')} title="Thème"><Sun size={18} /></button>
-          <button className="icon-btn" onClick={() => supabase.auth.signOut()} title="Déconnexion"><LogOut size={18} /></button>
+          <button className="icon-btn" onClick={handleSignOut} title="Déconnexion"><LogOut size={18} /></button>
         </div>
       </header>
 

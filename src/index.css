@@ -71,20 +71,76 @@ body {
   background-clip: text; margin-bottom: 4px;
 }
 
-.auth-group { margin-bottom: 12px; text-align: left; }
-.auth-group label { display: block; font-weight: 700; font-size: 0.78rem; margin-bottom: 5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.auth-group {
+  margin-bottom: 12px;
+  text-align: left;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.auth-group label {
+  display: block;
+  font-weight: 700;
+  font-size: 0.78rem;
+  margin-bottom: 5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.auth-row-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
 
 .auth-input-wrapper {
-  display: flex; align-items: center; gap: 10px;
-  background: #f8fafc; border: 1.5px solid #e2e8f0;
-  border-radius: 12px; padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 12px;
   transition: 0.25s;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
 }
-.auth-input-wrapper:focus-within { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 4px rgba(79,70,229,0.12); }
-.auth-input-wrapper svg { color: var(--muted); flex-shrink: 0; }
-.auth-input-wrapper input { border: none; outline: none; background: transparent; flex: 1; font-size: 0.92rem; font-weight: 600; color: var(--text); font-family: 'Outfit', sans-serif; }
-.auth-input-wrapper input[type="date"] { min-height: 22px; cursor: pointer; }
-.auth-input-wrapper input::placeholder { color: #cbd5e1; font-weight: 400; }
+.auth-input-wrapper:focus-within {
+  border-color: var(--primary);
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(79,70,229,0.12);
+}
+.auth-input-wrapper svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.auth-input-wrapper input {
+  border: none;
+  outline: none;
+  background: transparent;
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.auth-input-wrapper input[type="date"] {
+  min-height: 22px;
+  cursor: pointer;
+}
+.auth-input-wrapper input::placeholder {
+  color: #cbd5e1;
+  font-weight: 400;
+}
 
 .btn-auth-submit {
   width: 100%; padding: 16px; margin-top: 8px; border: none; border-radius: 16px;

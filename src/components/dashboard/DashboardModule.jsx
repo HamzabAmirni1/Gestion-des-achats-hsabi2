@@ -20,16 +20,15 @@ export default function DashboardModule({ session, theme }) {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const uid = session.user.id;
       const [v, a, p, c, ca, dep, per, prod] = await Promise.all([
-        supabase.from('ventes').select('*').eq('user_id', uid).order('date', { ascending: false }),
-        supabase.from('achats').select('*').eq('user_id', uid).order('date', { ascending: false }),
-        supabase.from('produits').select('*').eq('user_id', uid),
-        supabase.from('clients').select('*').eq('user_id', uid),
-        supabase.from('caisse').select('*').eq('user_id', uid).order('date', { ascending: false }),
-        supabase.from('depenses').select('*').eq('user_id', uid).order('date', { ascending: false }),
-        supabase.from('personnel').select('*').eq('user_id', uid),
-        supabase.from('productions').select('*').eq('user_id', uid).order('date', { ascending: false }),
+        supabase.from('ventes').select('*').order('date', { ascending: false }),
+        supabase.from('achats').select('*').order('date', { ascending: false }),
+        supabase.from('products').select('*').order('nom'),
+        supabase.from('clients').select('*'),
+        supabase.from('caisse').select('*').order('date', { ascending: false }),
+        supabase.from('depenses').select('*').order('date', { ascending: false }),
+        supabase.from('personnel').select('*'),
+        supabase.from('productions').select('*').order('date', { ascending: false }),
       ]);
       setData({
         ventes: v.data || [], achats: a.data || [], produits: p.data || [],
