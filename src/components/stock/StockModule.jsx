@@ -118,8 +118,33 @@ export default function StockModule({ session, theme, companyId }) {
     }
   };
 
+  // Items en alerte pour bannière
+  const itemsEnAlerte = useMemo(() => {
+    const res = [];
+    matieres.filter(m => (+m.stock_qty || 0) <= (+m.seuil_alerte || 10)).forEach(m => res.push({ ...m, type: '🧪 Matière' }));
+    emballages.filter(e => (+e.stock_qty || 0) <= (+e.seuil_alerte || 20)).forEach(e => res.push({ ...e, type: '📦 Emballage' }));
+    produits.filter(p => (+p.stock_qty || 0) <= (+p.seuil_alerte || 5)).forEach(p => res.push({ ...p, type: '🧴 Produit' }));
+    return res;
+  }, [matieres, emballages, produits]);
+
   return (
     <div className="animate-enter">
+      {/* Bannière alertes stock */}
+      {itemsEnAlerte.length > 0 && (
+        <div style={{ marginBottom: 16, background: '#fee2e2', border: '1.5px solid #fca5a5', borderRadius: 16, padding: '14px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, color: '#b91c1c', marginBottom: 10, fontSize: '0.95rem' }}>
+            <AlertTriangle size={18} /> ⚠️ {itemsEnAlerte.length} Article(s) en Alerte de Stock !
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {itemsEnAlerte.map(item => (
+              <span key={item.id} style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 20, padding: '4px 12px', fontSize: '0.78rem', fontWeight: 700, color: '#991b1b' }}>
+                {item.type} {item.nom}: <strong>{item.stock_qty}</strong> {item.unite || 'u'} (min: {item.seuil_alerte})
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Top Stats */}
       <div className="stats-grid">
         <div className="stat-card" style={{ borderLeft: '5px solid #4f46e5' }}>
