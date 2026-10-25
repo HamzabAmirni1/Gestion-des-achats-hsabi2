@@ -5,42 +5,69 @@ import { supabase } from '../supabaseClient';
  * useUserRole — fetches the user's role from the `profiles` table.
  * Returns: { role: 'admin' | 'worker' | null, loading: boolean }
  *
- * Supabase `profiles` table structure:
- *   id        uuid  (references auth.users.id)
- *   role      text  ('admin' | 'worker')
- *   full_name text
+ * Automatic First Admin:
+ * If no admin exists in the database yet, the first user who logs in
+ * is automatically assigned the 'admin' (Directeur) role!
  */
 export function useUserRole(session) {
-  const [role, setRole]     = useState(null);
+  const [role, setRole]       = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!session?.user?.id) { setRole(null); setLoading(false); return; }
+    if (!session?.user?.id) { 
+      setRole(null); 
+      setLoading(false); 
+      return; 
+    }
 
     const fetchRole = async () => {
       setLoading(true);
       try {
-        const { data, error } = await supabase
+        // 1. Fetch current profile
+        const { data: profile, error } = await supabase
           .from('profiles')
-          .select('role, full_name')
+          .select('role, full_name, is_active')
           .eq('id', session.user.id)
-          .single();
+          .maybeSingle();
 
-        if (error || !data) {
-          // No profile yet → auto-create as 'worker' (admin must be set manually in Supabase)
-          await supabase.from('profiles').upsert({
+        // 2. Count existing admins to see if this is the first / owner
+        const { count: adminCount } = await supabase
+          .from('profiles')
+          .select('id', { count: 'exact', head: true })
+          .eq('role', 'admin');
+
+        const noAdminsYet = !adminCount || adminCount === 0;
+
+        if (error || !profile) {
+          // First user or user without profile:
+          // If no admin exists yet, make this user admin! Otherwise worker.
+          const assignedRole = noAdminsYet ? 'admin' : 'worker';
+
+          const newProfile = {
             id: session.user.id,
-            role: 'worker',
-            full_name: session.user.email?.split('@')[0] || 'Utilisateur',
+            role: assignedRole,
+            full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Utilisateur',
             email: session.user.email,
             is_active: true,
-          });
-          setRole('worker');
+          };
+
+          await supabase.from('profiles').upsert(newProfile);
+          setRole(assignedRole);
         } else {
-          setRole(data.role || 'worker');
+          // Profile exists: if there is currently NO admin at all, promote this user to admin
+          if (profile.role !== 'admin' && noAdminsYet) {
+            await supabase
+              .from('profiles')
+              .update({ role: 'admin' })
+              .eq('id', session.user.id);
+            setRole('admin');
+          } else {
+            setRole(profile.role || 'worker');
+          }
         }
-      } catch {
-        setRole('worker'); // safe default
+      } catch (err) {
+        console.warn('Error determining role:', err);
+        setRole('worker'); // fallback safe
       } finally {
         setLoading(false);
       }
@@ -62,5 +89,5 @@ export const WORKER_TABS = new Set([
 
 /** Tabs visible only to admins */
 export const ADMIN_ONLY_TABS = new Set([
-  'reglements', 'caisse', 'apports', 'personnel', 'stats', 'dev',
+  'reglements', 'caisse', 'apports', 'personnel', 'stats', 'dev', 'utilisateurs'
 ]);
