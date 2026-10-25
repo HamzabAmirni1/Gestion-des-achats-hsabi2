@@ -15,3 +15,26 @@ export async function pingSupabase() {
     return false;
   }
 }
+
+// Safe upsert helper to prevent crashes if columns are not yet added in SQL
+export async function safeUpsertProfile(profileData) {
+  try {
+    const res = await supabase.from('profiles').upsert(profileData);
+    if (!res.error) return res;
+
+    if (res.error?.message?.includes('does not exist')) {
+      const basicData = {
+        id: profileData.id,
+        role: profileData.role,
+        full_name: profileData.full_name,
+        email: profileData.email,
+        is_active: profileData.is_active,
+      };
+      return await supabase.from('profiles').upsert(basicData);
+    }
+    return res;
+  } catch (err) {
+    console.warn('safeUpsertProfile fallback error:', err);
+    return { error: err };
+  }
+}
