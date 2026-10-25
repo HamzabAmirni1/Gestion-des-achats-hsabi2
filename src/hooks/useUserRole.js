@@ -41,7 +41,12 @@ export function useUserRole(session) {
         .maybeSingle();
 
       if (dbProfile) {
-        setProfile(dbProfile);
+        const localAvatar = localStorage.getItem('brasti-avatar-' + user.id);
+        const mergedProfile = {
+          ...dbProfile,
+          avatar_url: dbProfile.avatar_url || meta.avatar_url || localAvatar || ''
+        };
+        setProfile(mergedProfile);
         setRole(dbProfile.role || metaRole || 'worker');
         setIsActive(dbProfile.is_active !== false);
         return;
@@ -54,6 +59,7 @@ export function useUserRole(session) {
         const initialActive = metaRole === 'admin';
         setIsActive(initialActive);
 
+        const localAvatar = localStorage.getItem('brasti-avatar-' + user.id);
         const newProf = {
           id: user.id,
           role: metaRole,
@@ -62,6 +68,7 @@ export function useUserRole(session) {
           tel: meta.tel || '',
           adresse: meta.adresse || '',
           date_naissance: meta.date_naissance || '',
+          avatar_url: meta.avatar_url || localAvatar || '',
           director_id: meta.director_id || null,
           director_name: meta.director_name || '',
           is_active: initialActive,
