@@ -135,9 +135,9 @@ export default function App() {
         if (!selectedDirector) setSelectedDirector(data[0]);
       } else {
         const fallback = [{
-          id: 'admin-principal',
-          full_name: 'Hamza Amirni',
-          email: 'hamzaamirni@gmail.com',
+          id: '4ac64577-c8a3-45ea-a022-18b2f16cb489',
+          full_name: 'hamzaamirni451',
+          email: 'hamzaamirni451@gmail.com',
           role: 'admin'
         }];
         setDirectorsList(fallback);
