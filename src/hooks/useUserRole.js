@@ -42,8 +42,38 @@ export function useUserRole(session) {
 
       if (dbProfile) {
         const localAvatar = localStorage.getItem('brasti-avatar-' + user.id);
+        let effectiveDirectorId = dbProfile.director_id;
+        let effectiveDirectorName = dbProfile.director_name;
+
+        // Auto-guérison si c'est un employé sans director_id valide
+        const isWorkerRole = (dbProfile.role === 'worker' || metaRole === 'worker');
+        if (isWorkerRole && (!effectiveDirectorId || effectiveDirectorId === 'admin-principal')) {
+          try {
+            const { data: adminUser } = await supabase
+              .from('profiles')
+              .select('id, full_name, email')
+              .eq('role', 'admin')
+              .limit(1)
+              .maybeSingle();
+
+            if (adminUser?.id) {
+              effectiveDirectorId = adminUser.id;
+              effectiveDirectorName = adminUser.full_name || adminUser.email;
+              safeUpsertProfile({
+                id: user.id,
+                director_id: effectiveDirectorId,
+                director_name: effectiveDirectorName
+              }).catch(() => {});
+            }
+          } catch (e) {
+            console.warn('Auto-resolve director error:', e);
+          }
+        }
+
         const mergedProfile = {
           ...dbProfile,
+          director_id: effectiveDirectorId,
+          director_name: effectiveDirectorName,
           avatar_url: dbProfile.avatar_url || meta.avatar_url || localAvatar || ''
         };
         setProfile(mergedProfile);
@@ -59,6 +89,27 @@ export function useUserRole(session) {
         const initialActive = metaRole === 'admin';
         setIsActive(initialActive);
 
+        let effectiveDirectorId = meta.director_id || null;
+        let effectiveDirectorName = meta.director_name || '';
+
+        if (metaRole === 'worker' && (!effectiveDirectorId || effectiveDirectorId === 'admin-principal')) {
+          try {
+            const { data: adminUser } = await supabase
+              .from('profiles')
+              .select('id, full_name, email')
+              .eq('role', 'admin')
+              .limit(1)
+              .maybeSingle();
+
+            if (adminUser?.id) {
+              effectiveDirectorId = adminUser.id;
+              effectiveDirectorName = adminUser.full_name || adminUser.email;
+            }
+          } catch (e) {
+            console.warn('Auto-resolve director error in metadata flow:', e);
+          }
+        }
+
         const localAvatar = localStorage.getItem('brasti-avatar-' + user.id);
         const newProf = {
           id: user.id,
@@ -69,8 +120,8 @@ export function useUserRole(session) {
           adresse: meta.adresse || '',
           date_naissance: meta.date_naissance || '',
           avatar_url: meta.avatar_url || localAvatar || '',
-          director_id: meta.director_id || null,
-          director_name: meta.director_name || '',
+          director_id: effectiveDirectorId,
+          director_name: effectiveDirectorName,
           is_active: initialActive,
         };
         setProfile(newProf);
@@ -118,7 +169,12 @@ export function useUserRole(session) {
   }, [fetchRole]);
 
   // Company ID: pour un directeur c'est son propre id, pour un employé c'est le director_id de son directeur
-  const companyId = (profile?.role === 'worker' && profile?.director_id) ? profile.director_id : session?.user?.id;
+  // Fallback sécurisé vers le directeur principal si c'est un employé pour ne JAMAIS avoir un espace vide à 0 clients/produits
+  const DEFAULT_DIRECTOR_ID = '4ac64577-c8a3-45ea-a022-18b2f16cb489';
+  const isWorker = (role === 'worker' || profile?.role === 'worker' || session?.user?.user_metadata?.role === 'worker');
+  const companyId = isWorker 
+    ? (profile?.director_id && profile.director_id !== 'admin-principal' ? profile.director_id : DEFAULT_DIRECTOR_ID)
+    : session?.user?.id;
 
   return { role, isActive, profile, loading, companyId, refreshRole: fetchRole };
 }
@@ -130,8 +186,9 @@ export function useUserRole(session) {
  */
 export function getCompanyId(session, profile) {
   if (!session?.user?.id) return null;
-  if (profile?.role === 'worker' && profile?.director_id) {
-    return profile.director_id;
+  const DEFAULT_DIRECTOR_ID = '4ac64577-c8a3-45ea-a022-18b2f16cb489';
+  if (profile?.role === 'worker' || session?.user?.user_metadata?.role === 'worker') {
+    return (profile?.director_id && profile.director_id !== 'admin-principal') ? profile.director_id : DEFAULT_DIRECTOR_ID;
   }
   return session.user.id;
 }
