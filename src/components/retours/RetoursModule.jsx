@@ -98,26 +98,35 @@ export default function RetoursModule({ session, theme, companyId }) {
         .from('retours').insert([payload]).select();
 
       if (retErr) {
-        // Table retours n'existe pas encore → afficher message SQL
+        const isRlsError = retErr.code === '42501' || retErr.message?.toLowerCase().includes('row-level security');
         Swal.fire({
           icon: 'warning',
-          title: 'Table Retours Manquante',
-          html: `La table <b>retours</b> n'existe pas encore dans Supabase.<br/><br/>
-          Exécutez ce SQL dans Supabase SQL Editor :<br/>
-          <code style="font-size:0.75rem;display:block;text-align:left;margin-top:8px;background:#f1f5f9;padding:10px;border-radius:8px;">
-          CREATE TABLE IF NOT EXISTS retours (<br/>
-          &nbsp;&nbsp;id uuid DEFAULT gen_random_uuid() PRIMARY KEY,<br/>
-          &nbsp;&nbsp;user_id uuid,<br/>
-          &nbsp;&nbsp;vente_id uuid,<br/>
-          &nbsp;&nbsp;produit_id uuid,<br/>
-          &nbsp;&nbsp;produit_nom text,<br/>
-          &nbsp;&nbsp;quantite numeric DEFAULT 1,<br/>
-          &nbsp;&nbsp;motif text,<br/>
-          &nbsp;&nbsp;action text DEFAULT 'stock',<br/>
-          &nbsp;&nbsp;date date DEFAULT current_date,<br/>
-          &nbsp;&nbsp;created_at timestamptz DEFAULT now()<br/>
-          );
-          </code>`,
+          title: isRlsError ? 'Permission Supabase (RLS)' : 'Table Retours Manquante',
+          html: isRlsError ? `
+            La table existe mais les permissions RLS bloquent l'enregistrement.<br/><br/>
+            Exécutez cette commande dans <b>Supabase SQL Editor</b> :<br/>
+            <code style="font-size:0.8rem;display:block;text-align:left;margin-top:8px;background:#f1f5f9;padding:10px;border-radius:8px;font-weight:700;color:#0f172a;">
+            ALTER TABLE IF EXISTS retours DISABLE ROW LEVEL SECURITY;
+            </code>
+          ` : `
+            La table <b>retours</b> n'existe pas encore dans Supabase.<br/><br/>
+            Exécutez ce SQL dans Supabase SQL Editor :<br/>
+            <code style="font-size:0.75rem;display:block;text-align:left;margin-top:8px;background:#f1f5f9;padding:10px;border-radius:8px;">
+            CREATE TABLE IF NOT EXISTS retours (<br/>
+            &nbsp;&nbsp;id uuid DEFAULT gen_random_uuid() PRIMARY KEY,<br/>
+            &nbsp;&nbsp;user_id uuid,<br/>
+            &nbsp;&nbsp;vente_id uuid,<br/>
+            &nbsp;&nbsp;produit_id uuid,<br/>
+            &nbsp;&nbsp;produit_nom text,<br/>
+            &nbsp;&nbsp;quantite numeric DEFAULT 1,<br/>
+            &nbsp;&nbsp;motif text,<br/>
+            &nbsp;&nbsp;action text DEFAULT 'stock',<br/>
+            &nbsp;&nbsp;date date DEFAULT current_date,<br/>
+            &nbsp;&nbsp;created_at timestamptz DEFAULT now()<br/>
+            );<br/><br/>
+            ALTER TABLE IF EXISTS retours DISABLE ROW LEVEL SECURITY;
+            </code>
+          `,
           confirmButtonColor: '#4f46e5'
         });
         return;
